@@ -4,7 +4,7 @@
  * Copyright (c) 2013 Birger Schmidt (http://flapjack.io)
  *
  * Derived from NPCDMOD.C ...
- * Copyright (c) 2008-2010 Hendrik Baecker (http://www.pnp4nagios.org)
+ * Copyright (c) 2008-2010 PNP4Nagios Project (http://www.pnp4nagios.org)
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -19,7 +19,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Last Modified: 10-30-2013
+ * Last Modified: 11-03-2013
  *
  *****************************************************************************/
 
@@ -76,14 +76,14 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
 
     /* set some info - this is completely optional, as Nagios doesn't do anything with this data */
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt, Hendrik Baecker");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "Copyright (c) 2013 Birger Schmidt, 2008-2009 Hendrik Baecker");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "Copyright (c) 2013 Birger Schmidt");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.3");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_LICENSE, "GPL v2");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / pipe writer.");
 
     /* log module info to the Nagios log file */
-    write_to_all_logs("flapjackfeeder: Copyright (c) 2013 Birger Schmidt, derived from npcdmod by Hendrik Baecker", NSLOG_INFO_MESSAGE);
+    write_to_all_logs("flapjackfeeder: Copyright (c) 2013 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
 
     /* process arguments */
     if (npcdmod_process_module_args(args) == ERROR) {
