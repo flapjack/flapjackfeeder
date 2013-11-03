@@ -55,6 +55,7 @@ struct timeval timeout = { 1, 500000 }; // 1.5 seconds
 
 redisContext *rediscontext;
 redisReply *reply;
+int redis_connection_established = 0;
 
 void npcdmod_file_roller();
 int npcdmod_handle_data(int, void *);
@@ -104,22 +105,23 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     if (rediscontext == NULL || rediscontext->err) {
         if (rediscontext) {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "Connection error: %s But I'll retry to connect regulary.\n",
+                "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
                  rediscontext->errstr);
             redisFree(rediscontext);
         } else {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+                "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
         }
         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+    } else {
+        redis_connection_established = 1;
+        /* log a message to the Nagios log file that we're ready */
+        snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                "flapjackfeeder: Ready to run to have some fun!\n");
+        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
     }
-
-    /* log a message to the Nagios log file that we're ready */
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-            "flapjackfeeder: Ready to run to have some fun!\n");
-    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
     /* register for a 15 seconds file move event */
     time(&current_time);
@@ -156,24 +158,27 @@ void npcdmod_file_roller() {
     char temp_buffer[1024];
     int result = 0;
     time_t current_time;
-
     time(&current_time);
 
     /* open redis connection to push check results if needed */
     if (rediscontext == NULL || rediscontext->err) {
+        write_to_all_logs("flapjackfeeder: redis connection has to be (re)established.", NSLOG_INFO_MESSAGE);
         rediscontext = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
         if (rediscontext == NULL || rediscontext->err) {
             if (rediscontext) {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "Connection error: %s But I'll retry to connect regulary.\n",
+                    "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
                      rediscontext->errstr);
                 redisFree(rediscontext);
             } else {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+                    "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
             }
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+        } else {
+            redis_connection_established = 1;
+            write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
         }
     }
 
@@ -189,7 +194,7 @@ int npcdmod_handle_data(int event_type, void *data) {
     service *service=NULL;
 
     char temp_buffer[1024];
-    char perfdatafile_template[PERFDATA_BUFFER];
+    char push_buffer[PERFDATA_BUFFER];
     int written;
 
 
@@ -203,7 +208,7 @@ int npcdmod_handle_data(int event_type, void *data) {
             host = find_host(hostchkdata->host_name);
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
-                written = snprintf(perfdatafile_template, PERFDATA_BUFFER,
+                written = snprintf(push_buffer, PERFDATA_BUFFER,
 // {"entity":"localhost","check":"SSH","type":"service","state":"OK","summary":"SSH OK - OpenSSH_5.9p1 Debian-5ubuntu1 (protocol 2.0)","details":null,"time":"1383237623"}
                     "{"
                     "\"entity\":\"%s\","    // HOSTNAME
@@ -230,13 +235,17 @@ int npcdmod_handle_data(int event_type, void *data) {
                         PERFDATA_BUFFER, hostchkdata->host_name);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else {
-                    reply = redisCommand(rediscontext,"LPUSH events %s", perfdatafile_template);
+                } else if (redis_connection_established) {
+                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
                     if (reply != NULL) {
                         freeReplyObject(reply);
                     } else {
-                        write_to_all_logs(perfdatafile_template, NSLOG_INFO_MESSAGE);
+                        write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
+                        redis_connection_established = 0;
+                        redisFree(rediscontext);
                     }
+                } else {
+                    write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
             }
         }
@@ -251,7 +260,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                 /* find the nagios service object for this service */
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
 
-                written = snprintf(perfdatafile_template, PERFDATA_BUFFER,
+                written = snprintf(push_buffer, PERFDATA_BUFFER,
                     "{"
                     "\"entity\":\"%s\","    // HOSTNAME
                     "\"check\":\"%s\","     // SERVICENAME
@@ -278,13 +287,17 @@ int npcdmod_handle_data(int event_type, void *data) {
                         PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else {
-                    reply = redisCommand(rediscontext,"LPUSH events %s", perfdatafile_template);
+                } else if (redis_connection_established) {
+                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
                     if (reply != NULL) {
                         freeReplyObject(reply);
                     } else {
-                        write_to_all_logs(perfdatafile_template, NSLOG_INFO_MESSAGE);
+                        write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
+                        redis_connection_established = 0;
+                        redisFree(rediscontext);
                     }
+                } else {
+                    write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
             }
         }
@@ -293,8 +306,6 @@ int npcdmod_handle_data(int event_type, void *data) {
     default:
         break;
     }
-
-
     return 0;
 }
 
