@@ -10,7 +10,7 @@ Nagios/Icinga event broker module (neb) to feed redis for flapjack
 vagrant@buildbox:$ cd /vagrant
 vagrant@buildbox:/vagrant$ git clone https://github.com/redis/hiredis.git
 vagrant@buildbox:/vagrant$ cd hiredis
-vagrant@buildbox:/vagrant/hiredis$ make
+vagrant@buildbox:/vagrant/hiredis$ make hiredis-example
 vagrant@buildbox:/vagrant/hiredis$ cd ..
 vagrant@buildbox:/vagrant$ git clone https://github.com/lpjck/flapjackfeeder.git
 vagrant@buildbox:/vagrant$ cd flapjackfeeder
