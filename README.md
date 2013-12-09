@@ -14,7 +14,7 @@ vagrant@buildbox:/vagrant/hiredis$ make hiredis-example
 vagrant@buildbox:/vagrant/hiredis$ cd ..
 vagrant@buildbox:/vagrant$ git clone https://github.com/lpjck/flapjackfeeder.git
 vagrant@buildbox:/vagrant$ cd flapjackfeeder
-vagrant@buildbox:/vagrant/flapjackfeeder$ (cd src ; gcc -fPIC -g -O2 -DHAVE_CONFIG_H -DNSCORE -o flapjackfeeder.o flapjackfeeder.c -shared -fPIC ../../hiredis/libhiredis.a)
+vagrant@buildbox:/vagrant/flapjackfeeder$ (cd src ; gcc -fPIC -g -O2 -DHAVE_CONFIG_H -DNSCORE -o flapjackfeeder.o flapjackfeeder.c -shared -fPIC ../../hiredis/libhiredis.a ;strip flapjackfeeder.o)
 ```
 
 ## usage
