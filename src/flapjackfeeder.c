@@ -226,7 +226,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                         //hostchkdata->execution_time,
                         //hostchkdata->latency,
                         hostchkdata->output,
-                        hostchkdata->perf_data,
+                        hostchkdata->long_output,
                         (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -278,7 +278,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                         //srvchkdata->execution_time,
                         //srvchkdata->latency,
                         srvchkdata->output,
-                        srvchkdata->perf_data,
+                        srvchkdata->long_output,
                         (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
