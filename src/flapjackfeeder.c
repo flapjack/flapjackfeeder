@@ -19,8 +19,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Last Modified: 11-03-2013
- *
  *****************************************************************************/
 
 /* include (minimum required) event broker header files */
