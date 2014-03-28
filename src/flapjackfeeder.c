@@ -62,7 +62,7 @@ int npcdmod_process_config_var(char *arg);
 int npcdmod_process_module_args(char *args);
 
 char servicestate[][10] = { "OK", "WARNING", "CRITICAL", "UNKNOWN", };
-char hoststate[][12] = { "UP", "DOWN", "UNREACHABLE", };
+char hoststate[][12] = { "OK", "CRITICAL", "CRITICAL", };
 
 /* this function gets called when the module is loaded by the event broker */
 int nebmodule_init(int flags, char *args, nebmodule *handle) {
@@ -127,7 +127,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     atoi(redis_connect_retry_interval), NULL, TRUE, (void *) npcdmod_file_roller, "", 0);
 
     /* register to be notified of certain events... */
-    neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA, 
+    neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA,
             npcdmod_module_handle, 0, npcdmod_handle_data);
     neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA,
             npcdmod_module_handle, 0, npcdmod_handle_data);
@@ -210,26 +210,22 @@ int npcdmod_handle_data(int event_type, void *data) {
 // {"entity":"localhost","check":"SSH","type":"service","state":"OK","summary":"SSH OK - OpenSSH_5.9p1 Debian-5ubuntu1 (protocol 2.0)","details":null,"time":"1383237623"}
                     "{"
                     "\"entity\":\"%s\","    // HOSTNAME
-                    "\"check\":\"HOST\","   // SERVICENAME
-                    "\"type\":\"host\","    // type
+                    "\"check\":\"HOST\","
+                    "\"type\":\"service\","
                     "\"state\":\"%s\","     // HOSTSTATE
-                    //"\"time\":\"%f\","      // HOSTEXECUTIONTIME
-                    //"\"time\":\"%f\","      // HOSTLATENCY
                     "\"summary\":\"%s\","   // HOSTOUTPUT
                     "\"details\":\"%s\","   // HOSTlongoutput
                     "\"time\":\"%d\""       // TIMET
                     "}",
                         hostchkdata->host_name,
                         hoststate[hostchkdata->state],
-                        //hostchkdata->execution_time,
-                        //hostchkdata->latency,
                         hostchkdata->output,
                         hostchkdata->long_output,
                         (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s\n", 
+                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s\n",
                         PERFDATA_BUFFER, hostchkdata->host_name);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
@@ -281,7 +277,7 @@ int npcdmod_handle_data(int event_type, void *data) {
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s / %s\n", 
+                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s / %s\n",
                         PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
