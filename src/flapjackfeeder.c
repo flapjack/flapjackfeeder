@@ -465,27 +465,29 @@ char *expand_escapes(const char* src)
 {
     // escaped lengths must take NUL terminator into account
     int dest_len = strlen(src) + count_escapes(src) + 1;
-    char* dest = (char *) malloc(dest_len * sizeof(char));
+    char* dest = malloc(dest_len * sizeof(char));
 
     char c = *(src++);
+    char* d = dest;
 
     while (c) {
+        printf("--%c\n", c);
         switch(c) {
             case '\\':
-                *(dest++) = '\\';
-                *(dest++) = '\\';
+                *(d++) = '\\';
+                *(d++) = '\\';
                 break;
             case '\"':
-                *(dest++) = '\\';
-                *(dest++) = '\"';
+                *(d++) = '\\';
+                *(d++) = '\"';
                 break;
             default:
-                *(dest++) = c;
+                *(d++) = c;
         }
         c = *(src++);
     }
 
-    *dest = '\0'; /* Ensure NUL terminator */
+    *d = '\0'; /* Ensure NUL terminator */
 
     return(dest);
 }
