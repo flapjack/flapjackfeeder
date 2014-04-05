@@ -217,10 +217,10 @@ int npcdmod_handle_data(int event_type, void *data) {
                 int written = generate_event(push_buffer, PERFDATA_BUFFER,
                     hostchkdata->host_name,
                     "HOST",
-                    servicestate[hostchkdata->state],
+                    hoststate[hostchkdata->state],
                     hostchkdata->output,
                     hostchkdata->long_output,
-                    hostchkdata->timestamp.tv_sec);
+                    (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -259,7 +259,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     servicestate[srvchkdata->state],
                     srvchkdata->output,
                     srvchkdata->long_output,
-                    srvchkdata->timestamp.tv_sec);
+                    (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -471,7 +471,6 @@ char *expand_escapes(const char* src)
     char* d = dest;
 
     while (c) {
-        printf("--%c\n", c);
         switch(c) {
             case '\\':
                 *(d++) = '\\';
