@@ -65,8 +65,8 @@ char servicestate[][10] = { "OK", "WARNING", "CRITICAL", "UNKNOWN", };
 char hoststate[][12] = { "OK", "CRITICAL", "CRITICAL", };
 
 int count_escapes(const char *src);
-char *expand_escapes(const char* src);
-
+void expand_escapes(char* dest, const char* src);
+int add_to_buffer(char* buffer, size_t buffer_size, int buffer_offset, char* str);
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
                    char *state, char *output, char *long_output, int event_time);
 
@@ -222,7 +222,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hostchkdata->long_output,
                     (int)hostchkdata->timestamp.tv_sec);
 
-                if (written >= PERFDATA_BUFFER) {
+                if (written < 0) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                         "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s\n",
                         PERFDATA_BUFFER, hostchkdata->host_name);
@@ -261,7 +261,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     srvchkdata->long_output,
                     (int)srvchkdata->timestamp.tv_sec);
 
-                if (written >= PERFDATA_BUFFER) {
+                if (written < 0) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                         "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s / %s\n",
                         PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
@@ -392,41 +392,6 @@ int npcdmod_process_config_var(char *arg) {
     return OK;
 }
 
-int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time) {
-
-    char *escaped_host_name           = expand_escapes(host_name);
-    char *escaped_service_name        = expand_escapes(service_name);
-    char *escaped_state               = expand_escapes(state);
-    char *escaped_output              = expand_escapes(output);
-    char *escaped_long_output         = expand_escapes(long_output);
-
-    int written = snprintf(buffer, buffer_size,
-                            "{"
-                                "\"entity\":\"%s\","    // HOSTNAME
-                                "\"check\":\"%s\","     // SERVICENAME
-                                "\"type\":\"service\"," // type
-                                "\"state\":\"%s\","     // HOSTSTATE
-                                "\"summary\":\"%s\","   // HOSTOUTPUT
-                                "\"details\":\"%s\","   // HOSTlongoutput
-                                "\"time\":\"%d\""       // TIMET
-                            "}",
-                                escaped_host_name,
-                                escaped_service_name,
-                                escaped_state,
-                                escaped_output,
-                                escaped_long_output,
-                                event_time);
-
-    free(escaped_host_name);
-    free(escaped_service_name);
-    free(escaped_state);
-    free(escaped_output);
-    free(escaped_long_output);
-
-    return(written);
-}
-
 /* Counts escape sequences within a string
 
    Used for calculating the size of the destination string for
@@ -461,32 +426,85 @@ int count_escapes(const char *src) {
  *
  * Adapted from http://stackoverflow.com/questions/3535023/convert-characters-in-a-c-string-to-their-escape-sequences
  */
-char *expand_escapes(const char* src)
+void expand_escapes(char* dest, const char* src)
 {
-    // escaped lengths must take NUL terminator into account
-    int dest_len = strlen(src) + count_escapes(src) + 1;
-    char* dest = malloc(dest_len * sizeof(char));
-
-    char c = *(src++);
-    char* d = dest;
+    char  c = *(src++);
+    char *d = dest;
 
     while (c) {
         switch(c) {
-            case '\\':
-                *(d++) = '\\';
-                *(d++) = '\\';
-                break;
-            case '\"':
-                *(d++) = '\\';
-                *(d++) = '\"';
-                break;
-            default:
-                *(d++) = c;
+        case '\\':
+            *(d++) = '\\';
+            *(d++) = '\\';
+            break;
+        case '\"':
+            *(d++) = '\\';
+            *(d++) = '\"';
+            break;
+        default:
+            *(d++) = c;
         }
         c = *(src++);
     }
 
-    *d = '\0'; /* Ensure NUL terminator */
+}
 
-    return(dest);
+int add_to_buffer(char* buffer, size_t buffer_size, int buffer_offset, char* str) {
+    int str_len = strlen(str);
+
+    if ( (str_len + buffer_offset) >= buffer_size) {
+        return(-1);
+    }
+
+    memcpy(buffer + buffer_offset, str, str_len);
+    buffer_offset += str_len;
+
+    return(buffer_offset);
+}
+
+int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
+                   char *state, char *output, char *long_output, int event_time) {
+
+    char* start = "{\"type\":\"service\",";
+
+    char* field_names[5];
+    field_names[0] = "\"entity\":\"";
+    field_names[1] = "\"check\":\"";
+    field_names[2] = "\"state\":\"";
+    field_names[3] = "\"summary\":\"";
+    field_names[4] = "\"details\":\"";
+
+    char* fields[5];
+    fields[0] = host_name;
+    fields[1] = service_name;
+    fields[2] = state;
+    fields[3] = output;
+    fields[4] = long_output;
+
+    int buffer_offset = 0;
+
+    buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, start);
+    if (buffer_offset == -1) { return -1; }
+
+    for(int i = 0; i < 5; i++) {
+        buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, field_names[i]);
+        if ( buffer_offset == -1 ) { return -1; }
+
+        int target_len = strlen(fields[i]) + count_escapes(fields[i]);
+        if ( (target_len + buffer_offset) >= buffer_size) { return -1; }
+        expand_escapes(buffer + buffer_offset, fields[i]);
+        buffer_offset += target_len;
+
+        buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, "\",");
+        if ( buffer_offset == -1 ) { return -1; }
+    }
+
+    buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, "\"time\":");
+    if ( buffer_offset == -1 ) { return -1; }
+
+    // snprintf will null terminate
+    int total = snprintf(buffer + buffer_offset, buffer_size - buffer_offset, "%d}", event_time);
+    if ((total + buffer_offset + 1) > buffer_size) { return -1; }
+
+    return(buffer_offset);
 }
