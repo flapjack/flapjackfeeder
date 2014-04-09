@@ -486,7 +486,9 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, start);
     if (buffer_offset == -1) { return -1; }
 
-    for(int i = 0; i < 5; i++) {
+    int i;
+
+    for(i = 0; i < 5; i++) {
         buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, field_names[i]);
         if ( buffer_offset == -1 ) { return -1; }
 
