@@ -222,7 +222,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                         hoststate[hostchkdata->state],
                         hostchkdata->output,
                         hostchkdata->long_output,
-                        hostschkdata->perf_data,
+                        hostchkdata->perf_data,
                         (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
