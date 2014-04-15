@@ -214,7 +214,7 @@ int npcdmod_handle_data(int event_type, void *data) {
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
-                int written = generate_event(push_buffer, PERFDATA_BUFFER,
+                written = generate_event(push_buffer, PERFDATA_BUFFER,
                     hostchkdata->host_name,
                     "HOST",
                     hoststate[hostchkdata->state],
@@ -492,10 +492,12 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
         buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, field_names[i]);
         if ( buffer_offset == -1 ) { return -1; }
 
-        int target_len = strlen(fields[i]) + count_escapes(fields[i]);
-        if ( (target_len + buffer_offset) >= buffer_size) { return -1; }
-        expand_escapes(buffer + buffer_offset, fields[i]);
-        buffer_offset += target_len;
+        if (fields[i] != '\x0') {
+            int target_len = strlen(fields[i]) + count_escapes(fields[i]);
+            if ( (target_len + buffer_offset) >= buffer_size) { return -1; }
+            expand_escapes(buffer + buffer_offset, fields[i]);
+            buffer_offset += target_len;
+        }
 
         buffer_offset = add_to_buffer(buffer, buffer_size, buffer_offset, "\",");
         if ( buffer_offset == -1 ) { return -1; }
