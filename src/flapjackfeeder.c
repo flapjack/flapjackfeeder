@@ -64,6 +64,13 @@ int npcdmod_process_module_args(char *args);
 char servicestate[][10] = { "OK", "WARNING", "CRITICAL", "UNKNOWN", };
 char hoststate[][12] = { "OK", "CRITICAL", "CRITICAL", };
 
+int count_escapes(const char *src);
+char *expand_escapes(const char* src);
+
+int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
+                   char *state, char *output, char *long_output, int event_time);
+
+
 /* this function gets called when the module is loaded by the event broker */
 int nebmodule_init(int flags, char *args, nebmodule *handle) {
     char temp_buffer[1024];
@@ -206,22 +213,14 @@ int npcdmod_handle_data(int event_type, void *data) {
             host = find_host(hostchkdata->host_name);
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
-                written = snprintf(push_buffer, PERFDATA_BUFFER,
-// {"entity":"localhost","check":"SSH","type":"service","state":"OK","summary":"SSH OK - OpenSSH_5.9p1 Debian-5ubuntu1 (protocol 2.0)","details":null,"time":"1383237623"}
-                    "{"
-                    "\"entity\":\"%s\","    // HOSTNAME
-                    "\"check\":\"HOST\","
-                    "\"type\":\"service\","
-                    "\"state\":\"%s\","     // HOSTSTATE
-                    "\"summary\":\"%s\","   // HOSTOUTPUT
-                    "\"details\":\"%s\","   // HOSTlongoutput
-                    "\"time\":\"%d\""       // TIMET
-                    "}",
-                        hostchkdata->host_name,
-                        hoststate[hostchkdata->state],
-                        hostchkdata->output,
-                        hostchkdata->long_output,
-                        (int)hostchkdata->timestamp.tv_sec);
+
+                int written = generate_event(push_buffer, PERFDATA_BUFFER,
+                    hostchkdata->host_name,
+                    "HOST",
+                    hoststate[hostchkdata->state],
+                    hostchkdata->output,
+                    hostchkdata->long_output,
+                    (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -254,26 +253,13 @@ int npcdmod_handle_data(int event_type, void *data) {
                 /* find the nagios service object for this service */
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
 
-                written = snprintf(push_buffer, PERFDATA_BUFFER,
-                    "{"
-                    "\"entity\":\"%s\","    // HOSTNAME
-                    "\"check\":\"%s\","     // SERVICENAME
-                    "\"type\":\"service\"," // type
-                    "\"state\":\"%s\","     // HOSTSTATE
-                    //"\"time\":\"%f\","      // HOSTEXECUTIONTIME
-                    //"\"time\":\"%f\","      // HOSTLATENCY
-                    "\"summary\":\"%s\","   // HOSTOUTPUT
-                    "\"details\":\"%s\","   // HOSTlongoutput
-                    "\"time\":\"%d\""       // TIMET
-                    "}",
-                        srvchkdata->host_name,
-                        srvchkdata->service_description,
-                        servicestate[srvchkdata->state],
-                        //srvchkdata->execution_time,
-                        //srvchkdata->latency,
-                        srvchkdata->output,
-                        srvchkdata->long_output,
-                        (int)srvchkdata->timestamp.tv_sec);
+                written = generate_event(push_buffer, PERFDATA_BUFFER,
+                    srvchkdata->host_name,
+                    srvchkdata->service_description,
+                    servicestate[srvchkdata->state],
+                    srvchkdata->output,
+                    srvchkdata->long_output,
+                    (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -404,4 +390,111 @@ int npcdmod_process_config_var(char *arg) {
     }
 
     return OK;
+}
+
+/* Counts escape sequences within a string
+
+   Used for calculating the size of the destination string for
+   expand_escapes, below.
+*/
+int count_escapes(const char *src) {
+    int e = 0;
+
+    char c = *(src++);
+
+    while (c) {
+        switch(c) {
+            case '\\':
+                e++;
+                break;
+            case '\"':
+                e++;
+                break;
+        }
+        c = *(src++);
+    }
+
+    return(e);
+}
+
+/* Expands escape sequences within a string
+ *
+ * src must be a string with a NUL terminator
+ *
+ * NUL characters are not expanded to \0 (otherwise how would we know when
+ * the input string ends?)
+ *
+ * Adapted from http://stackoverflow.com/questions/3535023/convert-characters-in-a-c-string-to-their-escape-sequences
+ */
+char *expand_escapes(const char* src)
+{
+    char* dest;
+    char* d;
+
+    if ((src == NULL) || ( strlen(src) == 0)) {
+        dest = malloc(sizeof(char));
+        d = dest;
+    } else {
+        // escaped lengths must take NUL terminator into account
+        int dest_len = strlen(src) + count_escapes(src) + 1;
+        dest = malloc(dest_len * sizeof(char));
+        d = dest;
+
+        char c = *(src++);
+
+        while (c) {
+            switch(c) {
+                case '\\':
+                    *(d++) = '\\';
+                    *(d++) = '\\';
+                    break;
+                case '\"':
+                    *(d++) = '\\';
+                    *(d++) = '\"';
+                    break;
+                default:
+                    *(d++) = c;
+            }
+            c = *(src++);
+        }
+    }
+
+    *d = '\0'; /* Ensure NUL terminator */
+
+    return(dest);
+}
+
+int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
+                   char *state, char *output, char *long_output, int event_time) {
+
+    char *escaped_host_name           = expand_escapes(host_name);
+    char *escaped_service_name        = expand_escapes(service_name);
+    char *escaped_state               = expand_escapes(state);
+    char *escaped_output              = expand_escapes(output);
+    char *escaped_long_output         = expand_escapes(long_output);
+
+    int written = snprintf(buffer, buffer_size,
+                            "{"
+                                "\"entity\":\"%s\","    // HOSTNAME
+                                "\"check\":\"%s\","     // SERVICENAME
+                                "\"type\":\"service\"," // type
+                                "\"state\":\"%s\","     // HOSTSTATE
+                                "\"summary\":\"%s\","   // HOSTOUTPUT
+                                "\"details\":\"%s\","   // HOSTlongoutput
+                                "\"time\":%d"           // TIMET
+                            "}",
+                                escaped_host_name,
+                                escaped_service_name,
+                                escaped_state,
+                                escaped_output,
+                                escaped_long_output,
+                                event_time);
+
+    free(escaped_host_name);
+    free(escaped_service_name);
+    free(escaped_state);
+    free(escaped_output);
+    free(escaped_long_output);
+
+    return(written);
 }
