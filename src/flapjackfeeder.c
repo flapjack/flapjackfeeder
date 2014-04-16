@@ -68,7 +68,7 @@ int count_escapes(const char *src);
 char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time);
+                   char *state, char *output, char *long_output, char *perfdata, int event_time);
 
 
 /* this function gets called when the module is loaded by the event broker */
@@ -220,6 +220,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hoststate[hostchkdata->state],
                     hostchkdata->output,
                     hostchkdata->long_output,
+                    hostchkdata->perf_data,
                     (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -259,6 +260,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     servicestate[srvchkdata->state],
                     srvchkdata->output,
                     srvchkdata->long_output,
+                    srvchkdata->perf_data,
                     (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -465,13 +467,14 @@ char *expand_escapes(const char* src)
 }
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time) {
+                   char *state, char *output, char *long_output, char *perfdata, int event_time) {
 
-    char *escaped_host_name           = expand_escapes(host_name);
-    char *escaped_service_name        = expand_escapes(service_name);
-    char *escaped_state               = expand_escapes(state);
-    char *escaped_output              = expand_escapes(output);
-    char *escaped_long_output         = expand_escapes(long_output);
+    char *escaped_host_name    = expand_escapes(host_name);
+    char *escaped_service_name = expand_escapes(service_name);
+    char *escaped_state        = expand_escapes(state);
+    char *escaped_output       = expand_escapes(output);
+    char *escaped_long_output  = expand_escapes(long_output);
+    char *escaped_perfdata     = expand_escapes(perfdata);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
@@ -481,6 +484,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 "\"state\":\"%s\","     // HOSTSTATE
                                 "\"summary\":\"%s\","   // HOSTOUTPUT
                                 "\"details\":\"%s\","   // HOSTlongoutput
+                                "\"perfdata\":\"%s\","  // HOST/SERVICEperfdata
                                 "\"time\":%d"           // TIMET
                             "}",
                                 escaped_host_name,
@@ -488,6 +492,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
+                                escaped_perfdata,
                                 event_time);
 
     free(escaped_host_name);
@@ -495,6 +500,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     free(escaped_state);
     free(escaped_output);
     free(escaped_long_output);
+    free(escaped_perfdata);
 
     return(written);
 }
