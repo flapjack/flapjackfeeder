@@ -428,17 +428,15 @@ int count_escapes(const char *src) {
  */
 char *expand_escapes(const char* src)
 {
-    int src_len = strlen(src);
-
     char* dest;
     char* d;
 
-    if (src_len == 0) {
+    if ((src == NULL) || ( strlen(src) == 0)) {
         dest = malloc(sizeof(char));
         d = dest;
     } else {
         // escaped lengths must take NUL terminator into account
-        int dest_len = src_len + count_escapes(src) + 1;
+        int dest_len = strlen(src) + count_escapes(src) + 1;
         dest = malloc(dest_len * sizeof(char));
         d = dest;
 
