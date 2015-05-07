@@ -220,6 +220,13 @@ int npcdmod_handle_data(int event_type, void *data) {
 
             host = find_host(hostchkdata->host_name);
 
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                "flapjackfeeder: 1st customvar: %s first_notification_delay: %f\n",
+                host->custom_variables->variable_name,
+                host->first_notification_delay);
+            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
                 int written = generate_event(push_buffer, PERFDATA_BUFFER,
