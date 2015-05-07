@@ -92,9 +92,6 @@ extern int do_log(char*);
 
 #define LOG(level, msg) (loglevel >= level || loglevel == -1) ? (do_log(msg)) : (0)
 
-#define TRUE    1
-#define FALSE   0
-
 #define OK      0
 #define ERROR   -2
 
