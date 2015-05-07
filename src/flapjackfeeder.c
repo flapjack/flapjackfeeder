@@ -21,6 +21,13 @@
  *
  *****************************************************************************/
 
+#ifdef HAVE_NAEMON_H
+/* we compile for the naemon core ( -DHAVE_NAEMON_H was given as compile option ) */
+include "../naemon/naemon.h"
+#include "string.h"
+#else
+/* we compile for the legacy nagios 3 / icinga 1 core */
+
 /* include (minimum required) event broker header files */
 #include "../include/nebmodules.h"
 #include "../include/nebcallbacks.h"
@@ -33,6 +40,7 @@
 #include "../include/config.h"
 #include "../include/common.h"
 #include "../include/nagios.h"
+#endif
 
 /* include some pnp stuff */
 #include "../include/pnp.h"

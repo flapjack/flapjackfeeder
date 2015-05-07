@@ -5,10 +5,13 @@ Nagios/Icinga event broker module (neb) to feed check execution results to the e
 
 Known to work on Linux (eg Ubuntu Precise) with:
 - Nagios 3.2.3
+- Naemon 4
 - Icinga ?
 
 
 ## compiling
+
+To compile for Naemon / Nagios 4 add the -DHAVE_NAEMON_H compile time option
 
 ``` bash
 vagrant@buildbox:$ cd /vagrant
@@ -18,7 +21,10 @@ vagrant@buildbox:/vagrant/hiredis$ make hiredis-example
 vagrant@buildbox:/vagrant/hiredis$ cd ..
 vagrant@buildbox:/vagrant$ git clone https://github.com/flapjack/flapjackfeeder.git
 vagrant@buildbox:/vagrant$ cd flapjackfeeder
+# for old Nagios
 vagrant@buildbox:/vagrant/flapjackfeeder$ (cd src ; gcc -fPIC -g -O2 -DHAVE_CONFIG_H -DNSCORE -o flapjackfeeder.o flapjackfeeder.c -shared -fPIC ../../hiredis/libhiredis.a ;strip flapjackfeeder.o)
+# or for Naemon / Nagios 4:
+vagrant@buildbox:/vagrant/flapjackfeeder$ (cd src ; gcc -fPIC -g -O2 -DHAVE_NAEMON_H -DHAVE_CONFIG_H -DNSCORE -o flapjackfeeder.o flapjackfeeder.c -shared -fPIC ../../hiredis/libhiredis.a ;strip flapjackfeeder.o)
 ```
 
 ## usage
