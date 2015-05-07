@@ -23,7 +23,7 @@
 
 #ifdef HAVE_NAEMON_H
 /* we compile for the naemon core ( -DHAVE_NAEMON_H was given as compile option ) */
-include "../naemon/naemon.h"
+#include "../naemon/naemon.h"
 #include "string.h"
 #else
 /* we compile for the legacy nagios 3 / icinga 1 core */
