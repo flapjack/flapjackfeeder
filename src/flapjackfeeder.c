@@ -76,7 +76,7 @@ int count_escapes(const char *src);
 char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time);
+                   char *state, char *output, char *long_output, double first_notification_delay, int event_time);
 
 
 /* this function gets called when the module is loaded by the event broker */
@@ -220,12 +220,15 @@ int npcdmod_handle_data(int event_type, void *data) {
 
             host = find_host(hostchkdata->host_name);
 
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "flapjackfeeder: 1st customvar: %s first_notification_delay: %f\n",
-                host->custom_variables->variable_name,
-                host->first_notification_delay);
-            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+            customvariablesmember *currentcustomvar = host->custom_variables;
+            while (currentcustomvar != NULL) {
+                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                    "flapjackfeeder: customvar: %s = %s\n",
+                    currentcustomvar->variable_name, currentcustomvar->variable_value);
+                temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                currentcustomvar = currentcustomvar->next;
+            }
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
@@ -235,6 +238,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hoststate[hostchkdata->state],
                     hostchkdata->output,
                     hostchkdata->long_output,
+                    (double)host->first_notification_delay,
                     (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -274,6 +278,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     servicestate[srvchkdata->state],
                     srvchkdata->output,
                     srvchkdata->long_output,
+                    (double)service->first_notification_delay,
                     (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -480,7 +485,7 @@ char *expand_escapes(const char* src)
 }
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time) {
+                   char *state, char *output, char *long_output, double first_notification_delay, int event_time) {
 
     char *escaped_host_name           = expand_escapes(host_name);
     char *escaped_service_name        = expand_escapes(service_name);
@@ -490,19 +495,21 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
 
     int written = snprintf(buffer, buffer_size,
                             "{"
-                                "\"entity\":\"%s\","    // HOSTNAME
-                                "\"check\":\"%s\","     // SERVICENAME
-                                "\"type\":\"service\"," // type
-                                "\"state\":\"%s\","     // HOSTSTATE
-                                "\"summary\":\"%s\","   // HOSTOUTPUT
-                                "\"details\":\"%s\","   // HOSTlongoutput
-                                "\"time\":%d"           // TIMET
+                                "\"entity\":\"%s\","                   // HOSTNAME
+                                "\"check\":\"%s\","                    // SERVICENAME
+                                "\"type\":\"service\","                // type
+                                "\"state\":\"%s\","                    // HOSTSTATE
+                                "\"summary\":\"%s\","                  // HOSTOUTPUT
+                                "\"details\":\"%s\","                  // HOSTlongoutput
+                                "\"first_notification_delay\":\"%f\"," // first_notification_delay
+                                "\"time\":%d"                          // TIMET
                             "}",
                                 escaped_host_name,
                                 escaped_service_name,
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
+                                first_notification_delay,
                                 event_time);
 
     free(escaped_host_name);
