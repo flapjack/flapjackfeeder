@@ -76,7 +76,8 @@ int count_escapes(const char *src);
 char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, double first_notification_delay, int event_time);
+                   char *state, char *output, char *long_output, char *customvars,
+                   double first_notification_delay, int event_time);
 
 
 /* this function gets called when the module is loaded by the event broker */
@@ -221,14 +222,19 @@ int npcdmod_handle_data(int event_type, void *data) {
             host = find_host(hostchkdata->host_name);
 
             customvariablesmember *currentcustomvar = host->custom_variables;
+            char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
+            cur++;
             while (currentcustomvar != NULL) {
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: customvar: %s = %s\n",
-                    currentcustomvar->variable_name, currentcustomvar->variable_value);
-                temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-                write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                cur--;
+                cur += snprintf(cur, end - cur,
+                    "%s = %s\n",
+                    currentcustomvar->variable_name, currentcustomvar->variable_value
+                    );
+                // I think this is not needed, as snprintf takes care of the tailing 0
+                //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                 currentcustomvar = currentcustomvar->next;
             }
+            free (currentcustomvar);
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
@@ -238,6 +244,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hoststate[hostchkdata->state],
                     hostchkdata->output,
                     hostchkdata->long_output,
+                    temp_buffer,
                     (double)host->first_notification_delay,
                     (int)hostchkdata->timestamp.tv_sec);
 
@@ -272,12 +279,28 @@ int npcdmod_handle_data(int event_type, void *data) {
                 /* find the nagios service object for this service */
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
 
+                customvariablesmember *currentcustomvar = service->custom_variables;
+                char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
+                cur++;
+                while (currentcustomvar != NULL) {
+                    cur--;
+                    cur += snprintf(cur, end - cur,
+                        "%s = %s\n",
+                        currentcustomvar->variable_name, currentcustomvar->variable_value
+                        );
+                    // I think this is not needed, as snprintf takes care of the tailing 0
+                    //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                currentcustomvar = currentcustomvar->next;
+                }
+                free (currentcustomvar);
+
                 written = generate_event(push_buffer, PERFDATA_BUFFER,
                     srvchkdata->host_name,
                     srvchkdata->service_description,
                     servicestate[srvchkdata->state],
                     srvchkdata->output,
                     srvchkdata->long_output,
+                    temp_buffer,
                     (double)service->first_notification_delay,
                     (int)srvchkdata->timestamp.tv_sec);
 
@@ -485,13 +508,15 @@ char *expand_escapes(const char* src)
 }
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, double first_notification_delay, int event_time) {
+                   char *state, char *output, char *long_output, char *customvars,
+                   double first_notification_delay, int event_time) {
 
     char *escaped_host_name           = expand_escapes(host_name);
     char *escaped_service_name        = expand_escapes(service_name);
     char *escaped_state               = expand_escapes(state);
     char *escaped_output              = expand_escapes(output);
     char *escaped_long_output         = expand_escapes(long_output);
+    char *escaped_customvars          = expand_escapes(customvars);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
@@ -501,6 +526,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 "\"state\":\"%s\","                    // HOSTSTATE
                                 "\"summary\":\"%s\","                  // HOSTOUTPUT
                                 "\"details\":\"%s\","                  // HOSTlongoutput
+                                "\"customvars\":\"%s\","               // customvars
                                 "\"first_notification_delay\":\"%f\"," // first_notification_delay
                                 "\"time\":%d"                          // TIMET
                             "}",
@@ -509,6 +535,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
+                                escaped_customvars,
                                 first_notification_delay,
                                 event_time);
 
@@ -517,6 +544,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     free(escaped_state);
     free(escaped_output);
     free(escaped_long_output);
+    free(escaped_customvars);
 
     return(written);
 }
