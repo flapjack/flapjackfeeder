@@ -1,0 +1,18 @@
+[package]
+
+name = "flapjackruster"
+version = "0.0.1"
+description = ""
+authors = ["Ali Graham <ali.graham@bulletproof.net>"]
+license = "MIT"
+
+[dependencies]
+libc = '0.1'
+
+[dependencies.redis]
+git = "https://github.com/mitsuhiko/redis-rs.git"
+
+[lib]
+name = "flapjackruster"
+crate-type = ["dylib"]
+path = "src/flapjackruster.rs"
