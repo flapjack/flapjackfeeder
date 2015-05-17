@@ -76,9 +76,10 @@ int count_escapes(const char *src);
 char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, char *customvars,
-                   double first_notification_delay, int event_time);
-
+                   char *state, char *output, char *long_output, char *tags,
+//                   double first_notification_delay, 
+                   long initial_failure_delay, long repeat_failure_delay, 
+                   int event_time);
 
 /* this function gets called when the module is loaded by the event broker */
 int nebmodule_init(int flags, char *args, nebmodule *handle) {
@@ -222,18 +223,35 @@ int npcdmod_handle_data(int event_type, void *data) {
             host = find_host(hostchkdata->host_name);
 
             customvariablesmember *currentcustomvar = host->custom_variables;
+            long initial_failure_delay = 0;
+            long repeat_failure_delay  = 0;
             char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
-            cur++;
+            temp_buffer[0] = '\x0';
             while (currentcustomvar != NULL) {
-                cur--;
-                cur += snprintf(cur, end - cur,
-                    "%s = %s\n",
-                    currentcustomvar->variable_name, currentcustomvar->variable_value
-                    );
+                if (strcmp(currentcustomvar->variable_name, "TAGS") == 0) {
+                  cur += snprintf(cur, end - cur,
+                      "\"%s\",",
+                      currentcustomvar->variable_value
+                      );
+                }
+                else if (strcmp(currentcustomvar->variable_name, "INITIAL_FAILURE_DELAY") == 0) {
+                      initial_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                }
+                else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
+                      repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                }
                 // I think this is not needed, as snprintf takes care of the tailing 0
                 //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                 currentcustomvar = currentcustomvar->next;
             }
+            cur--;
+            if (strcmp(cur, ",") == 0) {
+                cur[0] = '\x0';
+            }
+            else {
+                cur++;
+            }
+
             free (currentcustomvar);
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
@@ -245,7 +263,9 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hostchkdata->output,
                     hostchkdata->long_output,
                     temp_buffer,
-                    (double)host->first_notification_delay,
+//                    (double)host->first_notification_delay,
+                    initial_failure_delay,
+                    repeat_failure_delay,
                     (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -267,6 +287,9 @@ int npcdmod_handle_data(int event_type, void *data) {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
             }
+            // I fear I've implemented a memory leak, but the following produces a segfault :-(
+            //free (initial_failure_delay);
+            //free (repeat_failure_delay);
         }
         break;
 
@@ -280,18 +303,35 @@ int npcdmod_handle_data(int event_type, void *data) {
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
 
                 customvariablesmember *currentcustomvar = service->custom_variables;
+                long initial_failure_delay = 0;
+                long repeat_failure_delay  = 0;
                 char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
-                cur++;
+                temp_buffer[0] = '\x0';
                 while (currentcustomvar != NULL) {
-                    cur--;
-                    cur += snprintf(cur, end - cur,
-                        "%s = %s\n",
-                        currentcustomvar->variable_name, currentcustomvar->variable_value
-                        );
+                    if (strcmp(currentcustomvar->variable_name, "TAGS") == 0) {
+                      cur += snprintf(cur, end - cur,
+                          "\"%s\",",
+                          currentcustomvar->variable_value
+                          );
+                    }
+                    else if (strcmp(currentcustomvar->variable_name, "INITIAL_FAILURE_DELAY") == 0) {
+                          initial_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                    }
+                    else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
+                          repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                    }
                     // I think this is not needed, as snprintf takes care of the tailing 0
                     //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-                currentcustomvar = currentcustomvar->next;
+                    currentcustomvar = currentcustomvar->next;
                 }
+                cur--;
+                if (strcmp(cur, ",") == 0) {
+                    cur[0] = '\x0';
+                }
+                else {
+                    cur++;
+                }
+
                 free (currentcustomvar);
 
                 written = generate_event(push_buffer, PERFDATA_BUFFER,
@@ -301,7 +341,9 @@ int npcdmod_handle_data(int event_type, void *data) {
                     srvchkdata->output,
                     srvchkdata->long_output,
                     temp_buffer,
-                    (double)service->first_notification_delay,
+//                    (double)service->first_notification_delay,
+                    initial_failure_delay,
+                    repeat_failure_delay,
                     (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -322,6 +364,9 @@ int npcdmod_handle_data(int event_type, void *data) {
                 } else {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
+                // I fear I've implemented a memory leak, but the following produces a segfault :-(
+                //free (initial_failure_delay);
+                //free (repeat_failure_delay);
             }
         }
         break;
@@ -508,15 +553,17 @@ char *expand_escapes(const char* src)
 }
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, char *customvars,
-                   double first_notification_delay, int event_time) {
+                   char *state, char *output, char *long_output, char *tags,
+//                   double first_notification_delay, 
+                   long initial_failure_delay, long repeat_failure_delay, 
+                   int event_time) {
 
-    char *escaped_host_name           = expand_escapes(host_name);
-    char *escaped_service_name        = expand_escapes(service_name);
-    char *escaped_state               = expand_escapes(state);
-    char *escaped_output              = expand_escapes(output);
-    char *escaped_long_output         = expand_escapes(long_output);
-    char *escaped_customvars          = expand_escapes(customvars);
+    char *escaped_host_name    = expand_escapes(host_name);
+    char *escaped_service_name = expand_escapes(service_name);
+    char *escaped_state        = expand_escapes(state);
+    char *escaped_output       = expand_escapes(output);
+    char *escaped_long_output  = expand_escapes(long_output);
+    char *escaped_tags         = expand_escapes(tags);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
@@ -526,8 +573,11 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 "\"state\":\"%s\","                    // HOSTSTATE
                                 "\"summary\":\"%s\","                  // HOSTOUTPUT
                                 "\"details\":\"%s\","                  // HOSTlongoutput
-                                "\"customvars\":\"%s\","               // customvars
-                                "\"first_notification_delay\":\"%f\"," // first_notification_delay
+                                "\"tags\":[%s],"                       // tags
+                                "\"tags_debug\":[%s],"                       // tags
+//                                "\"first_notification_delay\":\"%f\"," // first_notification_delay
+                                "\"initial_failure_delay\":%lu,"        // initial_failure_delay
+                                "\"repeat_failure_delay\":%lu,"         // repeat_failure_delay
                                 "\"time\":%d"                          // TIMET
                             "}",
                                 escaped_host_name,
@@ -535,8 +585,11 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
-                                escaped_customvars,
-                                first_notification_delay,
+                                tags,
+                                tags,
+//                                first_notification_delay,
+                                initial_failure_delay,
+                                repeat_failure_delay,
                                 event_time);
 
     free(escaped_host_name);
@@ -544,7 +597,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     free(escaped_state);
     free(escaped_output);
     free(escaped_long_output);
-    free(escaped_customvars);
+    free(escaped_tags);
 
     return(written);
 }
