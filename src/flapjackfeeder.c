@@ -228,7 +228,7 @@ int npcdmod_handle_data(int event_type, void *data) {
             char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
             temp_buffer[0] = '\x0';
             while (currentcustomvar != NULL) {
-                if (strcmp(currentcustomvar->variable_name, "TAGS") == 0) {
+                if (strcmp(currentcustomvar->variable_name, "TAG") == 0) {
                   cur += snprintf(cur, end - cur,
                       "\"%s\",",
                       currentcustomvar->variable_value
@@ -240,8 +240,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                 else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
                       repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
                 }
-                // I think this is not needed, as snprintf takes care of the tailing 0
-                //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                 currentcustomvar = currentcustomvar->next;
             }
             cur--;
@@ -263,7 +261,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hostchkdata->output,
                     hostchkdata->long_output,
                     temp_buffer,
-//                    (double)host->first_notification_delay,
                     initial_failure_delay,
                     repeat_failure_delay,
                     (int)hostchkdata->timestamp.tv_sec);
@@ -287,9 +284,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
             }
-            // I fear I've implemented a memory leak, but the following produces a segfault :-(
-            //free (initial_failure_delay);
-            //free (repeat_failure_delay);
         }
         break;
 
@@ -308,7 +302,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                 char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
                 temp_buffer[0] = '\x0';
                 while (currentcustomvar != NULL) {
-                    if (strcmp(currentcustomvar->variable_name, "TAGS") == 0) {
+                    if (strcmp(currentcustomvar->variable_name, "TAG") == 0) {
                       cur += snprintf(cur, end - cur,
                           "\"%s\",",
                           currentcustomvar->variable_value
@@ -320,8 +314,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                     else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
                           repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
                     }
-                    // I think this is not needed, as snprintf takes care of the tailing 0
-                    //temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     currentcustomvar = currentcustomvar->next;
                 }
                 cur--;
@@ -341,7 +333,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                     srvchkdata->output,
                     srvchkdata->long_output,
                     temp_buffer,
-//                    (double)service->first_notification_delay,
                     initial_failure_delay,
                     repeat_failure_delay,
                     (int)srvchkdata->timestamp.tv_sec);
@@ -364,9 +355,6 @@ int npcdmod_handle_data(int event_type, void *data) {
                 } else {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                 }
-                // I fear I've implemented a memory leak, but the following produces a segfault :-(
-                //free (initial_failure_delay);
-                //free (repeat_failure_delay);
             }
         }
         break;
@@ -554,7 +542,6 @@ char *expand_escapes(const char* src)
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
                    char *state, char *output, char *long_output, char *tags,
-//                   double first_notification_delay, 
                    long initial_failure_delay, long repeat_failure_delay, 
                    int event_time) {
 
@@ -563,7 +550,6 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     char *escaped_state        = expand_escapes(state);
     char *escaped_output       = expand_escapes(output);
     char *escaped_long_output  = expand_escapes(long_output);
-    char *escaped_tags         = expand_escapes(tags);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
@@ -574,10 +560,8 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 "\"summary\":\"%s\","                  // HOSTOUTPUT
                                 "\"details\":\"%s\","                  // HOSTlongoutput
                                 "\"tags\":[%s],"                       // tags
-                                "\"tags_debug\":[%s],"                       // tags
-//                                "\"first_notification_delay\":\"%f\"," // first_notification_delay
-                                "\"initial_failure_delay\":%lu,"        // initial_failure_delay
-                                "\"repeat_failure_delay\":%lu,"         // repeat_failure_delay
+                                "\"initial_failure_delay\":%lu,"       // initial_failure_delay
+                                "\"repeat_failure_delay\":%lu,"        // repeat_failure_delay
                                 "\"time\":%d"                          // TIMET
                             "}",
                                 escaped_host_name,
@@ -586,8 +570,6 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 escaped_output,
                                 escaped_long_output,
                                 tags,
-                                tags,
-//                                first_notification_delay,
                                 initial_failure_delay,
                                 repeat_failure_delay,
                                 event_time);
@@ -597,7 +579,6 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     free(escaped_state);
     free(escaped_output);
     free(escaped_long_output);
-    free(escaped_tags);
 
     return(written);
 }
