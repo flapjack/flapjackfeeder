@@ -549,6 +549,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     char *escaped_state        = expand_escapes(state);
     char *escaped_output       = expand_escapes(output);
     char *escaped_long_output  = expand_escapes(long_output);
+    char *escaped_tags         = expand_escapes(tags);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
@@ -568,7 +569,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
-                                tags,
+                                escaped_tags,
                                 initial_failure_delay,
                                 repeat_failure_delay,
                                 event_time);
@@ -578,6 +579,7 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
     free(escaped_state);
     free(escaped_output);
     free(escaped_long_output);
+    free(escaped_tags);
 
     return(written);
 }
