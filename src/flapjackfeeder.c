@@ -77,7 +77,6 @@ char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
                    char *state, char *output, char *long_output, char *tags,
-//                   double first_notification_delay, 
                    long initial_failure_delay, long repeat_failure_delay, 
                    int event_time);
 
