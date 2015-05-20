@@ -1,7 +1,7 @@
 /*****************************************************************************
  *
  * FLAPJACKFEEDER.C
- * Copyright (c) 2013 Birger Schmidt (http://flapjack.io)
+ * Copyright (c) 2013-2015 Birger Schmidt (http://flapjack.io)
  *
  * Derived from NPCDMOD.C ...
  * Copyright (c) 2008-2010 PNP4Nagios Project (http://www.pnp4nagios.org)
@@ -23,7 +23,7 @@
 
 #ifdef HAVE_NAEMON_H
 /* we compile for the naemon core ( -DHAVE_NAEMON_H was given as compile option ) */
-include "../naemon/naemon.h"
+#include "../naemon/naemon.h"
 #include "string.h"
 #else
 /* we compile for the legacy nagios 3 / icinga 1 core */
@@ -76,8 +76,9 @@ int count_escapes(const char *src);
 char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time);
-
+                   char *state, char *output, char *long_output, char *tags,
+                   long initial_failure_delay, long repeat_failure_delay, 
+                   int event_time);
 
 /* this function gets called when the module is loaded by the event broker */
 int nebmodule_init(int flags, char *args, nebmodule *handle) {
@@ -90,13 +91,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     /* set some info - this is completely optional, as Nagios doesn't do anything with this data */
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "Copyright (c) 2013 Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.3");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_COPYRIGHT, "Copyright (c) 2013-2015 Birger Schmidt");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.4");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_LICENSE, "GPL v2");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / pipe writer.");
 
     /* log module info to the Nagios log file */
-    write_to_all_logs("flapjackfeeder: Copyright (c) 2013 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
+    write_to_all_logs("flapjackfeeder: Copyright (c) 2013-2015 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
 
     /* process arguments */
     if (npcdmod_process_module_args(args) == ERROR) {
@@ -220,6 +221,36 @@ int npcdmod_handle_data(int event_type, void *data) {
 
             host = find_host(hostchkdata->host_name);
 
+            customvariablesmember *currentcustomvar = host->custom_variables;
+            long initial_failure_delay = 0;
+            long repeat_failure_delay  = 0;
+            char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
+            temp_buffer[0] = '\x0';
+            while (currentcustomvar != NULL) {
+                if (strcmp(currentcustomvar->variable_name, "TAG") == 0) {
+                  cur += snprintf(cur, end - cur,
+                      "\"%s\",",
+                      currentcustomvar->variable_value
+                      );
+                }
+                else if (strcmp(currentcustomvar->variable_name, "INITIAL_FAILURE_DELAY") == 0) {
+                      initial_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                }
+                else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
+                      repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                }
+                currentcustomvar = currentcustomvar->next;
+            }
+            cur--;
+            if (strcmp(cur, ",") == 0) {
+                cur[0] = '\x0';
+            }
+            else {
+                cur++;
+            }
+
+            free (currentcustomvar);
+
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
                 int written = generate_event(push_buffer, PERFDATA_BUFFER,
@@ -228,6 +259,9 @@ int npcdmod_handle_data(int event_type, void *data) {
                     hoststate[hostchkdata->state],
                     hostchkdata->output,
                     hostchkdata->long_output,
+                    temp_buffer,
+                    initial_failure_delay,
+                    repeat_failure_delay,
                     (int)hostchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -261,12 +295,45 @@ int npcdmod_handle_data(int event_type, void *data) {
                 /* find the nagios service object for this service */
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
 
+                customvariablesmember *currentcustomvar = service->custom_variables;
+                long initial_failure_delay = 0;
+                long repeat_failure_delay  = 0;
+                char *cur = temp_buffer, * const end = temp_buffer + sizeof temp_buffer;
+                temp_buffer[0] = '\x0';
+                while (currentcustomvar != NULL) {
+                    if (strcmp(currentcustomvar->variable_name, "TAG") == 0) {
+                      cur += snprintf(cur, end - cur,
+                          "\"%s\",",
+                          currentcustomvar->variable_value
+                          );
+                    }
+                    else if (strcmp(currentcustomvar->variable_name, "INITIAL_FAILURE_DELAY") == 0) {
+                          initial_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                    }
+                    else if (strcmp(currentcustomvar->variable_name, "REPEAT_FAILURE_DELAY") == 0) {
+                          repeat_failure_delay = strtol(currentcustomvar->variable_value,NULL,10);
+                    }
+                    currentcustomvar = currentcustomvar->next;
+                }
+                cur--;
+                if (strcmp(cur, ",") == 0) {
+                    cur[0] = '\x0';
+                }
+                else {
+                    cur++;
+                }
+
+                free (currentcustomvar);
+
                 written = generate_event(push_buffer, PERFDATA_BUFFER,
                     srvchkdata->host_name,
                     srvchkdata->service_description,
                     servicestate[srvchkdata->state],
                     srvchkdata->output,
                     srvchkdata->long_output,
+                    temp_buffer,
+                    initial_failure_delay,
+                    repeat_failure_delay,
                     (int)srvchkdata->timestamp.tv_sec);
 
                 if (written >= PERFDATA_BUFFER) {
@@ -473,29 +540,37 @@ char *expand_escapes(const char* src)
 }
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
-                   char *state, char *output, char *long_output, int event_time) {
+                   char *state, char *output, char *long_output, char *tags,
+                   long initial_failure_delay, long repeat_failure_delay, 
+                   int event_time) {
 
-    char *escaped_host_name           = expand_escapes(host_name);
-    char *escaped_service_name        = expand_escapes(service_name);
-    char *escaped_state               = expand_escapes(state);
-    char *escaped_output              = expand_escapes(output);
-    char *escaped_long_output         = expand_escapes(long_output);
+    char *escaped_host_name    = expand_escapes(host_name);
+    char *escaped_service_name = expand_escapes(service_name);
+    char *escaped_state        = expand_escapes(state);
+    char *escaped_output       = expand_escapes(output);
+    char *escaped_long_output  = expand_escapes(long_output);
 
     int written = snprintf(buffer, buffer_size,
                             "{"
-                                "\"entity\":\"%s\","    // HOSTNAME
-                                "\"check\":\"%s\","     // SERVICENAME
-                                "\"type\":\"service\"," // type
-                                "\"state\":\"%s\","     // HOSTSTATE
-                                "\"summary\":\"%s\","   // HOSTOUTPUT
-                                "\"details\":\"%s\","   // HOSTlongoutput
-                                "\"time\":%d"           // TIMET
+                                "\"entity\":\"%s\","                   // HOSTNAME
+                                "\"check\":\"%s\","                    // SERVICENAME
+                                "\"type\":\"service\","                // type
+                                "\"state\":\"%s\","                    // HOSTSTATE
+                                "\"summary\":\"%s\","                  // HOSTOUTPUT
+                                "\"details\":\"%s\","                  // HOSTlongoutput
+                                "\"tags\":[%s],"                       // tags
+                                "\"initial_failure_delay\":%lu,"       // initial_failure_delay
+                                "\"repeat_failure_delay\":%lu,"        // repeat_failure_delay
+                                "\"time\":%d"                          // TIMET
                             "}",
                                 escaped_host_name,
                                 escaped_service_name,
                                 escaped_state,
                                 escaped_output,
                                 escaped_long_output,
+                                tags,
+                                initial_failure_delay,
+                                repeat_failure_delay,
                                 event_time);
 
     free(escaped_host_name);
