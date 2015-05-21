@@ -53,7 +53,6 @@
 NEB_API_VERSION(CURRENT_NEB_API_VERSION);
 
 void *npcdmod_module_handle = NULL;
-char *perfdata_pipe = "/usr/local/nagios/var/perfdata";
 char *redis_host = "127.0.0.1";
 char *redis_port = "6379";
 char *redis_connect_retry_interval = "15";
