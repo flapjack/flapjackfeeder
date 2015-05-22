@@ -52,18 +52,18 @@
 /* specify event broker API version (required) */
 NEB_API_VERSION(CURRENT_NEB_API_VERSION);
 
-void *npcdmod_module_handle2 = NULL;
+void *npcdmod_module_handle = NULL;
 char *redis_host = "127.0.0.1";
 char *redis_port = "6379";
 char *redis_connect_retry_interval = "15";
 struct timeval timeout = { 1, 500000 }; // 1.5 seconds
 
-redisContext *rediscontext2;
-redisReply *reply2;
-int redis_connection_established2 = 0;
+redisContext *rediscontext;
+redisReply *reply;
+int redis_connection_established = 0;
 
-void npcdmod_file_roller2();
-int npcdmod_handle_data2(int, void *);
+void npcdmod_file_roller();
+int npcdmod_handle_data(int, void *);
 
 int npcdmod_process_config_var(char *arg);
 int npcdmod_process_module_args(char *args);
@@ -85,15 +85,15 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     time_t current_time;
 
     /* save our handle */
-    npcdmod_module_handle2 = handle;
+    npcdmod_module_handle = handle;
 
     /* set some info - this is completely optional, as Nagios doesn't do anything with this data */
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_COPYRIGHT, "Copyright (c) 2013-2015 Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_VERSION, "0.0.4");
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_LICENSE, "GPL v2");
-    neb_set_module_info(npcdmod_module_handle2, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / pipe writer.");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_COPYRIGHT, "Copyright (c) 2013-2015 Birger Schmidt");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.4");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_LICENSE, "GPL v2");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / pipe writer.");
 
     /* log module info to the Nagios log file */
     write_to_all_logs("flapjackfeeder: Copyright (c) 2013-2015 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
@@ -114,13 +114,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
     /* open redis connection to push check results */
-    rediscontext2 = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
-    if (rediscontext2 == NULL || rediscontext2->err) {
-        if (rediscontext2) {
+    rediscontext = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
+    if (rediscontext == NULL || rediscontext->err) {
+        if (rediscontext) {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                 "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                 rediscontext2->errstr);
-            redisFree(rediscontext2);
+                 rediscontext->errstr);
+            redisFree(rediscontext);
         } else {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                 "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
@@ -128,7 +128,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
     } else {
-        redis_connection_established2 = 1;
+        redis_connection_established = 1;
         /* log a message to the Nagios log file that we're ready */
         snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                 "flapjackfeeder: Ready to run to have some fun!\n");
@@ -139,13 +139,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     /* register for a 15 seconds file move event */
     time(&current_time);
     schedule_new_event(EVENT_USER_FUNCTION,TRUE, current_time + atoi(redis_connect_retry_interval), TRUE,
-    atoi(redis_connect_retry_interval), NULL, TRUE, (void *) npcdmod_file_roller2, "", 0);
+    atoi(redis_connect_retry_interval), NULL, TRUE, (void *) npcdmod_file_roller, "", 0);
 
     /* register to be notified of certain events... */
     neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA,
-            npcdmod_module_handle2, 0, npcdmod_handle_data2);
+            npcdmod_module_handle, 0, npcdmod_handle_data);
     neb_register_callback(NEBCALLBACK_SERVICE_CHECK_DATA,
-            npcdmod_module_handle2, 0, npcdmod_handle_data2);
+            npcdmod_module_handle, 0, npcdmod_handle_data);
     return 0;
 }
 
@@ -154,8 +154,8 @@ int nebmodule_deinit(int flags, int reason) {
     char temp_buffer[1024];
 
     /* deregister for all events we previously registered for... */
-    neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA,npcdmod_handle_data2);
-    neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA,npcdmod_handle_data2);
+    neb_deregister_callback(NEBCALLBACK_HOST_CHECK_DATA,npcdmod_handle_data);
+    neb_deregister_callback(NEBCALLBACK_SERVICE_CHECK_DATA,npcdmod_handle_data);
 
     /* log a message to the Nagios log file */
     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -167,24 +167,22 @@ int nebmodule_deinit(int flags, int reason) {
 }
 
 /* gets called every X seconds by an event in the scheduling queue */
-void npcdmod_file_roller2() {
+void npcdmod_file_roller() {
     char temp_buffer[1024];
     int result = 0;
     time_t current_time;
     time(&current_time);
 
-write_to_all_logs("feeder 2 npcdmod_file_roller2 retry REDIS connect", NSLOG_INFO_MESSAGE);
-
     /* open redis connection to push check results if needed */
-    if (rediscontext2 == NULL || rediscontext2->err) {
+    if (rediscontext == NULL || rediscontext->err) {
         write_to_all_logs("flapjackfeeder: redis connection has to be (re)established.", NSLOG_INFO_MESSAGE);
-        rediscontext2 = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
-        if (rediscontext2 == NULL || rediscontext2->err) {
-            if (rediscontext2) {
+        rediscontext = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
+        if (rediscontext == NULL || rediscontext->err) {
+            if (rediscontext) {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                     "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                     rediscontext2->errstr);
-                redisFree(rediscontext2);
+                     rediscontext->errstr);
+                redisFree(rediscontext);
             } else {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
                     "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
@@ -192,7 +190,7 @@ write_to_all_logs("feeder 2 npcdmod_file_roller2 retry REDIS connect", NSLOG_INF
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         } else {
-            redis_connection_established2 = 1;
+            redis_connection_established = 1;
             write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
         }
     }
@@ -201,7 +199,7 @@ write_to_all_logs("feeder 2 npcdmod_file_roller2 retry REDIS connect", NSLOG_INF
 }
 
 /* handle data from Nagios daemon */
-int npcdmod_handle_data2(int event_type, void *data) {
+int npcdmod_handle_data(int event_type, void *data) {
     nebstruct_host_check_data *hostchkdata = NULL;
     nebstruct_service_check_data *srvchkdata = NULL;
 
@@ -217,9 +215,9 @@ int npcdmod_handle_data2(int event_type, void *data) {
     switch (event_type) {
 
     case NEBCALLBACK_HOST_CHECK_DATA:
+        /* an aggregated status data dump just started or ended... */
         if ((hostchkdata = (nebstruct_host_check_data *) data)) {
 
-            write_to_all_logs("feeder 2 host data", NSLOG_INFO_MESSAGE);
             host = find_host(hostchkdata->host_name);
 
             customvariablesmember *currentcustomvar = host->custom_variables;
@@ -271,16 +269,14 @@ int npcdmod_handle_data2(int event_type, void *data) {
                         PERFDATA_BUFFER, hostchkdata->host_name);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else if (redis_connection_established2) {
-write_to_all_logs("feeder 2 service LPUSH before", NSLOG_INFO_MESSAGE);
-                    reply2 = redisCommand(rediscontext2,"LPUSH events %s", push_buffer);
-write_to_all_logs("feeder 2 service LPUSH after", NSLOG_INFO_MESSAGE);
-                    if (reply2 != NULL) {
-                        freeReplyObject(reply2);
+                } else if (redis_connection_established) {
+                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
+                    if (reply != NULL) {
+                        freeReplyObject(reply);
                     } else {
                         write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
-                        redis_connection_established2 = 0;
-                        redisFree(rediscontext2);
+                        redis_connection_established = 0;
+                        redisFree(rediscontext);
                     }
                 } else {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
@@ -290,13 +286,13 @@ write_to_all_logs("feeder 2 service LPUSH after", NSLOG_INFO_MESSAGE);
         break;
 
     case NEBCALLBACK_SERVICE_CHECK_DATA:
+        /* an aggregated status data dump just started or ended... */
         if ((srvchkdata = (nebstruct_service_check_data *) data)) {
 
             if (srvchkdata->type == NEBTYPE_SERVICECHECK_PROCESSED) {
 
                 /* find the nagios service object for this service */
                 service = find_service(srvchkdata->host_name, srvchkdata->service_description);
-                write_to_all_logs("feeder 2 service data", NSLOG_INFO_MESSAGE);
 
                 customvariablesmember *currentcustomvar = service->custom_variables;
                 long initial_failure_delay = 0;
@@ -345,16 +341,14 @@ write_to_all_logs("feeder 2 service LPUSH after", NSLOG_INFO_MESSAGE);
                         PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
                     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else if (redis_connection_established2) {
-write_to_all_logs("feeder 2 service LPUSH before", NSLOG_INFO_MESSAGE);
-                    reply2 = redisCommand(rediscontext2,"LPUSH events %s", push_buffer);
-write_to_all_logs("feeder 2 service LPUSH after", NSLOG_INFO_MESSAGE);
-                    if (reply2 != NULL) {
-                        freeReplyObject(reply2);
+                } else if (redis_connection_established) {
+                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
+                    if (reply != NULL) {
+                        freeReplyObject(reply);
                     } else {
                         write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
-                        redis_connection_established2 = 0;
-                        redisFree(rediscontext2);
+                        redis_connection_established = 0;
+                        redisFree(rediscontext);
                     }
                 } else {
                     write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
