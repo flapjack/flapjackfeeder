@@ -53,10 +53,20 @@
 NEB_API_VERSION(CURRENT_NEB_API_VERSION);
 
 void *npcdmod_module_handle = NULL;
-char *redis_host = "127.0.0.1";
-char *redis_port = "6379";
 char *redis_connect_retry_interval = "15";
 struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+
+/* redis target structure */
+typedef struct redistarget_struct {
+    char         *redis_host;
+    char         *redis_port;
+    int          redis_connection_established;
+    redisContext *redis_context;
+    struct redistarget_struct *next;
+} redistarget;
+
+redistarget *currentredistarget = NULL;
+//= {"127.0.0.1",6379,*redis_context,NULL};
 
 redisContext *rediscontext;
 redisReply *reply;
@@ -105,16 +115,16 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     }
 
     /* Log some health data */
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis host '%s'.", redis_host);
+    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis host '%s'.", currentredistarget->redis_host);
     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis port '%s'.", redis_port);
+    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis port '%s'.", currentredistarget->redis_port);
     temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
     /* open redis connection to push check results */
-    rediscontext = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
+    rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
     if (rediscontext == NULL || rediscontext->err) {
         if (rediscontext) {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -176,7 +186,7 @@ void npcdmod_file_roller() {
     /* open redis connection to push check results if needed */
     if (rediscontext == NULL || rediscontext->err) {
         write_to_all_logs("flapjackfeeder: redis connection has to be (re)established.", NSLOG_INFO_MESSAGE);
-        rediscontext = redisConnectWithTimeout(redis_host, atoi(redis_port), timeout);
+        rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
         if (rediscontext == NULL || rediscontext->err) {
             if (rediscontext) {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -248,7 +258,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                 cur++;
             }
 
-            free (currentcustomvar);
+            my_free(currentcustomvar);
 
             if (hostchkdata->type == NEBTYPE_HOSTCHECK_PROCESSED) {
 
@@ -322,7 +332,7 @@ int npcdmod_handle_data(int event_type, void *data) {
                     cur++;
                 }
 
-                free (currentcustomvar);
+                my_free(currentcustomvar);
 
                 written = generate_event(push_buffer, PERFDATA_BUFFER,
                     srvchkdata->host_name,
@@ -397,8 +407,8 @@ int npcdmod_process_module_args(char *args) {
             if ((newarglist = (char **) realloc(arglist, (argcount + memblocks)
                     * sizeof(char **))) == NULL) {
                 for (arg = 0; arg < argcount; arg++)
-                    free(arglist[argcount]);
-                free(arglist);
+                    my_free(arglist[argcount]);
+                my_free(arglist);
                 return ERROR;
             } else
                 arglist = newarglist;
@@ -414,16 +424,40 @@ int npcdmod_process_module_args(char *args) {
     for (arg = 0; arg < argcount; arg++) {
         if (npcdmod_process_config_var(arglist[arg]) == ERROR) {
             for (arg = 0; arg < argcount; arg++)
-                free(arglist[arg]);
-            free(arglist);
+                my_free(arglist[arg]);
+            my_free(arglist);
             return ERROR;
         }
     }
 
+	redistarget *new_redistarget = NULL;
+    // fill redistarget with defaults (if parameters are missing from module config)
+    if (currentredistarget == NULL) {
+        /* allocate memory for a new redis target */
+        if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
+            //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
+            write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+        }
+        new_redistarget->redis_host = "127.0.0.1";
+        new_redistarget->redis_port = "6379";
+        new_redistarget->redis_connection_established = 0;
+    }
+    if (new_redistarget != NULL) {
+    	/* add the new redistarget to the head of the redistarget list */
+    	new_redistarget->next = currentredistarget;
+    	currentredistarget = new_redistarget;
+    }
+    if (currentredistarget->redis_host == NULL) {
+        currentredistarget->redis_host = "127.0.0.1";
+    }
+    if (currentredistarget->redis_port == NULL) {
+        currentredistarget->redis_port = "6379";
+    }
+
     /* free allocated memory */
     for (arg = 0; arg < argcount; arg++)
-        free(arglist[arg]);
-    free(arglist);
+        my_free(arglist[arg]);
+    my_free(arglist);
 
     return OK;
 }
@@ -446,12 +480,58 @@ int npcdmod_process_config_var(char *arg) {
     strip(var);
     strip(val);
 
-    /* process the variable... */
-    if (!strcmp(var, "redis_host"))
-        redis_host = strdup(val);
+	redistarget *new_redistarget = NULL;
 
-    else if (!strcmp(var, "redis_port"))
-        redis_port = strdup(val);
+    /* process the variable... */
+    if (!strcmp(var, "redis_host")) {
+        // fill redistarget structure
+        if (currentredistarget == NULL || currentredistarget->redis_host != NULL) {
+            /* allocate memory for a new redis target */
+            if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
+                logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
+                write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+            }
+            new_redistarget->redis_host = NULL;
+            new_redistarget->redis_port = NULL;
+            new_redistarget->redis_connection_established = 0;
+        }
+        if (currentredistarget != NULL && currentredistarget->redis_host == NULL) {
+            currentredistarget->redis_host = strdup(val);
+        }
+        else {
+            new_redistarget->redis_host = strdup(val);
+        }
+        if (new_redistarget != NULL) {
+        	/* add the new redistarget to the head of the redistarget list */
+        	new_redistarget->next = currentredistarget;
+        	currentredistarget = new_redistarget;
+        }
+    }
+
+    else if (!strcmp(var, "redis_port")) {
+        // fill redistarget structure
+        if (currentredistarget == NULL || currentredistarget->redis_port != NULL) {
+            /* allocate memory for a new redis target */
+            if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
+                //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
+                write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+            }
+            new_redistarget->redis_host = NULL;
+            new_redistarget->redis_port = NULL;
+            new_redistarget->redis_connection_established = 0;
+        }
+        if (currentredistarget != NULL && currentredistarget->redis_port == NULL) {
+            currentredistarget->redis_port = strdup(val);
+        }
+        else {
+            new_redistarget->redis_port = strdup(val);
+        }
+        if (new_redistarget != NULL) {
+        	/* add the new redistarget to the head of the redistarget list */
+        	new_redistarget->next = currentredistarget;
+        	currentredistarget = new_redistarget;
+        }
+    }
 
     else if (!strcmp(var, "redis_connect_retry_interval"))
         redis_connect_retry_interval = strdup(val);
@@ -572,11 +652,11 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
                                 repeat_failure_delay,
                                 event_time);
 
-    free(escaped_host_name);
-    free(escaped_service_name);
-    free(escaped_state);
-    free(escaped_output);
-    free(escaped_long_output);
+    my_free(escaped_host_name);
+    my_free(escaped_service_name);
+    my_free(escaped_state);
+    my_free(escaped_output);
+    my_free(escaped_long_output);
 
     return(written);
 }
