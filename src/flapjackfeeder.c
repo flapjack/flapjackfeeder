@@ -417,7 +417,7 @@ int npcdmod_process_module_args(char *args) {
     }
 
     /* terminate the arg list */
-    arglist[argcount] = '\x0';
+    arglist[argcount] = NULL;
 
     /* process each argument */
     for (arg = 0; arg < argcount; arg++) {
