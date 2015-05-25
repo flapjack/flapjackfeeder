@@ -121,6 +121,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     
         /* open redis connection to push check results */
         currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+        currentredistarget->redis_connection_established = 0;
         if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
             if (currentredistarget->rediscontext) {
                 snprintf(temp_buffer, sizeof(temp_buffer) - 1,
@@ -184,7 +185,7 @@ void npcdmod_file_roller() {
     redistarget *currentredistarget = redistargets;
     while (currentredistarget != NULL) {
         /* open redis connection to push check results if needed */
-        if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
+        if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err || currentredistarget->redis_connection_established == 0) {
             snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection has to be (re)established (redis host '%s', redis port '%s').", 
                 currentredistarget->redis_host, currentredistarget->redis_port);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
@@ -207,6 +208,14 @@ void npcdmod_file_roller() {
                 write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
             }
         }
+        /*
+        else {
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection seems to be fine (redis host '%s', redis port '%s' redis-> '%d').", 
+                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->rediscontext->err);
+            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+        }
+        */
         currentredistarget = currentredistarget->next;
     }
 
