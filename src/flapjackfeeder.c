@@ -61,15 +61,14 @@ typedef struct redistarget_struct {
     char         *redis_host;
     char         *redis_port;
     int          redis_connection_established;
-    redisContext *redis_context;
+    redisContext *rediscontext;
     struct redistarget_struct *next;
 } redistarget;
 
-redistarget *currentredistarget = NULL;
+/* here will be all our redis targets */ 
+redistarget *redistargets = NULL;
 
-redisContext *rediscontext;
 redisReply *reply;
-int redis_connection_established = 0;
 
 void npcdmod_file_roller();
 int npcdmod_handle_data(int, void *);
@@ -100,9 +99,9 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_COPYRIGHT, "Copyright (c) 2013-2015 Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.4");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.5");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_LICENSE, "GPL v2");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / pipe writer.");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / redis writer.");
 
     /* log module info to the Nagios log file */
     write_to_all_logs("flapjackfeeder: Copyright (c) 2013-2015 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
@@ -113,36 +112,36 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
         return -1;
     }
 
-    /* Log some health data */
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis host '%s'.", currentredistarget->redis_host);
-    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis port '%s'.", currentredistarget->redis_port);
-    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-
-    /* open redis connection to push check results */
-    rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
-    if (rediscontext == NULL || rediscontext->err) {
-        if (rediscontext) {
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                 rediscontext->errstr);
-            redisFree(rediscontext);
+    redistarget *currentredistarget = redistargets;
+    while (currentredistarget != NULL) {
+        /* Log some health data */
+        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis host '%s', redis port '%s'.", currentredistarget->redis_host, currentredistarget->redis_port);
+        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+    
+        /* open redis connection to push check results */
+        currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+        if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
+            if (currentredistarget->rediscontext) {
+                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                    "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
+                     currentredistarget->rediscontext->errstr);
+                redisFree(currentredistarget->rediscontext);
+            } else {
+                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                    "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+            }
+            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         } else {
+            currentredistarget->redis_connection_established = 1;
+            /* log a message to the Nagios log file that we're ready */
             snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+                    "flapjackfeeder: Ready to run to have some fun!\n");
+            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         }
-        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-    } else {
-        redis_connection_established = 1;
-        /* log a message to the Nagios log file that we're ready */
-        snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                "flapjackfeeder: Ready to run to have some fun!\n");
-        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+        currentredistarget = currentredistarget->next;
     }
 
     /* register for a 15 seconds file move event */
@@ -182,26 +181,33 @@ void npcdmod_file_roller() {
     time_t current_time;
     time(&current_time);
 
-    /* open redis connection to push check results if needed */
-    if (rediscontext == NULL || rediscontext->err) {
-        write_to_all_logs("flapjackfeeder: redis connection has to be (re)established.", NSLOG_INFO_MESSAGE);
-        rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
-        if (rediscontext == NULL || rediscontext->err) {
-            if (rediscontext) {
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                     rediscontext->errstr);
-                redisFree(rediscontext);
-            } else {
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
-            }
+    redistarget *currentredistarget = redistargets;
+    while (currentredistarget != NULL) {
+        /* open redis connection to push check results if needed */
+        if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection has to be (re)established (redis host '%s', redis port '%s').", 
+                currentredistarget->redis_host, currentredistarget->redis_port);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-        } else {
-            redis_connection_established = 1;
-            write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
+            currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+            if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
+                if (currentredistarget->rediscontext) {
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                        "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
+                         currentredistarget->rediscontext->errstr);
+                    redisFree(currentredistarget->rediscontext);
+                } else {
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                        "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+                }
+                temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+            } else {
+                currentredistarget->redis_connection_established = 1;
+                write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
+            }
         }
+        currentredistarget = currentredistarget->next;
     }
 
     return;
@@ -272,23 +278,30 @@ int npcdmod_handle_data(int event_type, void *data) {
                     repeat_failure_delay,
                     (int)hostchkdata->timestamp.tv_sec);
 
-                if (written >= PERFDATA_BUFFER) {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s\n",
-                        PERFDATA_BUFFER, hostchkdata->host_name);
-                    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-                    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else if (redis_connection_established) {
-                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
-                    if (reply != NULL) {
-                        freeReplyObject(reply);
+                redistarget *currentredistarget = redistargets;
+                while (currentredistarget != NULL) {
+                    if (written >= PERFDATA_BUFFER) {
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                            "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s\n",
+                            PERFDATA_BUFFER, hostchkdata->host_name);
+                        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                    } else if (currentredistarget->redis_connection_established) {
+                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH events %s", push_buffer);
+                        if (reply != NULL) {
+                            freeReplyObject(reply);
+                        } else {
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: unable to write to redis, connection lost (redis host '%s', redis port '%s').", 
+                                currentredistarget->redis_host, currentredistarget->redis_port);
+                            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                            currentredistarget->redis_connection_established = 0;
+                            redisFree(currentredistarget->rediscontext);
+                        }
                     } else {
-                        write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
-                        redis_connection_established = 0;
-                        redisFree(rediscontext);
+                        write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                     }
-                } else {
-                    write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
+                    currentredistarget = currentredistarget->next;
                 }
             }
         }
@@ -344,23 +357,30 @@ int npcdmod_handle_data(int event_type, void *data) {
                     repeat_failure_delay,
                     (int)srvchkdata->timestamp.tv_sec);
 
-                if (written >= PERFDATA_BUFFER) {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s / %s\n",
-                        PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
-                    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-                    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-                } else if (redis_connection_established) {
-                    reply = redisCommand(rediscontext,"LPUSH events %s", push_buffer);
-                    if (reply != NULL) {
-                        freeReplyObject(reply);
+                redistarget *currentredistarget = redistargets;
+                while (currentredistarget != NULL) {
+                    if (written >= PERFDATA_BUFFER) {
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1,
+                            "flapjackfeeder: Buffer size of %d in npcdmod.h is too small, ignoring data for %s / %s\n",
+                            PERFDATA_BUFFER, srvchkdata->host_name, srvchkdata->service_description);
+                        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                    } else if (currentredistarget->redis_connection_established) {
+                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH events %s", push_buffer);
+                        if (reply != NULL) {
+                            freeReplyObject(reply);
+                        } else {
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: unable to write to redis, connection lost (redis host '%s', redis port '%s').", 
+                                currentredistarget->redis_host, currentredistarget->redis_port);
+                            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                            currentredistarget->redis_connection_established = 0;
+                            redisFree(currentredistarget->rediscontext);
+                        }
                     } else {
-                        write_to_all_logs("flapjackfeeder: unable to write to redis, connection lost.", NSLOG_INFO_MESSAGE);
-                        redis_connection_established = 0;
-                        redisFree(rediscontext);
+                        write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
                     }
-                } else {
-                    write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
+                    currentredistarget = currentredistarget->next;
                 }
             }
         }
@@ -385,8 +405,18 @@ int npcdmod_process_module_args(char *args) {
     int memblocks = 64;
     int arg = 0;
 
-    if (args == NULL)
+    if (args == NULL) {
+        // fill redistarget with defaults (if parameters are missing from module config)
+        /* allocate memory for a new redis target */
+        if ((redistargets = malloc(sizeof(redistarget))) == NULL) {
+            write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+        }
+        redistargets->redis_host = "127.0.0.1";
+        redistargets->redis_port = "6379";
+        redistargets->redis_connection_established = 0;
+    	redistargets->next = NULL;
         return OK;
+    }
 
     /* get all the var/val argument pairs */
 
@@ -429,15 +459,10 @@ int npcdmod_process_module_args(char *args) {
         }
     }
 
-    if (currentredistarget == NULL) {
-            //|| currentredistarget->redis_host == NULL || currentredistarget->redis_port == NULL) {
-        write_to_all_logs("Error: You have to configure at least one redis target (i.e. redis_host=localhost,redis_port=6379)\n", NSLOG_INFO_MESSAGE);
+    if (redistargets == NULL || redistargets->redis_host == NULL || redistargets->redis_port == NULL) {
+        write_to_all_logs("flapjackfeeder: Error: You have to configure at least one redis target tuple (i.e. redis_host=localhost,redis_port=6379)", NSLOG_CONFIG_ERROR);
         return ERROR;
     }
-    else {
-        write_to_all_logs("INFO: You have to configure at least one redis target (i.e. redis_host=localhost,redis_port=6379)\n", NSLOG_INFO_MESSAGE);
-    }
-
 
     /* free allocated memory */
     for (arg = 0; arg < argcount; arg++)
@@ -470,7 +495,7 @@ int npcdmod_process_config_var(char *arg) {
     /* process the variable... */
     if (!strcmp(var, "redis_host")) {
         // fill redistarget structure
-        if (currentredistarget == NULL || currentredistarget->redis_host != NULL) {
+        if (redistargets == NULL || redistargets->redis_host != NULL) {
             /* allocate memory for a new redis target */
             if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
                 //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
@@ -480,41 +505,41 @@ int npcdmod_process_config_var(char *arg) {
             new_redistarget->redis_port = NULL;
             new_redistarget->redis_connection_established = 0;
         }
-        if (currentredistarget != NULL && currentredistarget->redis_host == NULL) {
-            currentredistarget->redis_host = strdup(val);
+        if (redistargets != NULL && redistargets->redis_host == NULL) {
+            redistargets->redis_host = strdup(val);
         }
         else {
             new_redistarget->redis_host = strdup(val);
         }
         if (new_redistarget != NULL) {
         	/* add the new redistarget to the head of the redistarget list */
-        	new_redistarget->next = currentredistarget;
-        	currentredistarget = new_redistarget;
+        	new_redistarget->next = redistargets;
+        	redistargets = new_redistarget;
         }
     }
 
     else if (!strcmp(var, "redis_port")) {
         // fill redistarget structure
-        if (currentredistarget == NULL || currentredistarget->redis_port != NULL) {
+        if (redistargets == NULL || redistargets->redis_port != NULL) {
             /* allocate memory for a new redis target */
             if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
                 //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
-                write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+                write_to_all_logs("Error: Could not allocate memory for redis target", NSLOG_INFO_MESSAGE);
             }
             new_redistarget->redis_host = NULL;
             new_redistarget->redis_port = NULL;
             new_redistarget->redis_connection_established = 0;
         }
-        if (currentredistarget != NULL && currentredistarget->redis_port == NULL) {
-            currentredistarget->redis_port = strdup(val);
+        if (redistargets != NULL && redistargets->redis_port == NULL) {
+            redistargets->redis_port = strdup(val);
         }
         else {
             new_redistarget->redis_port = strdup(val);
         }
         if (new_redistarget != NULL) {
         	/* add the new redistarget to the head of the redistarget list */
-        	new_redistarget->next = currentredistarget;
-        	currentredistarget = new_redistarget;
+        	new_redistarget->next = redistargets;
+        	redistargets = new_redistarget;
         }
     }
 
@@ -645,57 +670,3 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
 
     return(written);
 }
-
-
-/* adds a custom variable to a host */
-customvariablesmember *add_custom_variable_to_host(host *hst, char *varname, char *varvalue) {
-
-	return add_custom_variable_to_object(&hst->custom_variables, varname, varvalue);
-}
-
-/* adds a custom variable to an object */
-customvariablesmember *add_custom_variable_to_object(customvariablesmember **object_ptr, char *varname, char *varvalue) {
-	customvariablesmember *new_customvariablesmember = NULL;
-
-	/* make sure we have the data we need */
-	if (object_ptr == NULL) {
-		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Custom variable object is NULL\n");
-		return NULL;
-	}
-
-	if (varname == NULL || !strcmp(varname, "")) {
-		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Custom variable name is NULL\n");
-		return NULL;
-	}
-
-	/* allocate memory for a new member */
-	if ((new_customvariablesmember = malloc(sizeof(customvariablesmember))) == NULL) {
-		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable\n");
-		return NULL;
-	}
-	if ((new_customvariablesmember->variable_name = (char *)strdup(varname)) == NULL) {
-		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable name\n");
-		my_free(new_customvariablesmember);
-		return NULL;
-	}
-	if (varvalue) {
-		if ((new_customvariablesmember->variable_value = (char *)strdup(varvalue)) == NULL) {
-			logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable value\n");
-			my_free(new_customvariablesmember->variable_name);
-			my_free(new_customvariablesmember);
-			return NULL;
-		}
-	} else
-		new_customvariablesmember->variable_value = NULL;
-
-	/* set initial values */
-	new_customvariablesmember->has_been_modified = FALSE;
-
-	/* add the new member to the head of the member list */
-	new_customvariablesmember->next = *object_ptr;
-	*object_ptr = new_customvariablesmember;
-
-	return new_customvariablesmember;
-}
-
-
