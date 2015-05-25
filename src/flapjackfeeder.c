@@ -66,7 +66,6 @@ typedef struct redistarget_struct {
 } redistarget;
 
 redistarget *currentredistarget = NULL;
-//= {"127.0.0.1",6379,*redis_context,NULL};
 
 redisContext *rediscontext;
 redisReply *reply;
@@ -430,29 +429,15 @@ int npcdmod_process_module_args(char *args) {
         }
     }
 
-	redistarget *new_redistarget = NULL;
-    // fill redistarget with defaults (if parameters are missing from module config)
     if (currentredistarget == NULL) {
-        /* allocate memory for a new redis target */
-        if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
-            //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
-            write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
-        }
-        new_redistarget->redis_host = "127.0.0.1";
-        new_redistarget->redis_port = "6379";
-        new_redistarget->redis_connection_established = 0;
+            //|| currentredistarget->redis_host == NULL || currentredistarget->redis_port == NULL) {
+        write_to_all_logs("Error: You have to configure at least one redis target (i.e. redis_host=localhost,redis_port=6379)\n", NSLOG_INFO_MESSAGE);
+        return ERROR;
     }
-    if (new_redistarget != NULL) {
-    	/* add the new redistarget to the head of the redistarget list */
-    	new_redistarget->next = currentredistarget;
-    	currentredistarget = new_redistarget;
+    else {
+        write_to_all_logs("INFO: You have to configure at least one redis target (i.e. redis_host=localhost,redis_port=6379)\n", NSLOG_INFO_MESSAGE);
     }
-    if (currentredistarget->redis_host == NULL) {
-        currentredistarget->redis_host = "127.0.0.1";
-    }
-    if (currentredistarget->redis_port == NULL) {
-        currentredistarget->redis_port = "6379";
-    }
+
 
     /* free allocated memory */
     for (arg = 0; arg < argcount; arg++)
@@ -488,7 +473,7 @@ int npcdmod_process_config_var(char *arg) {
         if (currentredistarget == NULL || currentredistarget->redis_host != NULL) {
             /* allocate memory for a new redis target */
             if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
-                logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
+                //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
                 write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
             }
             new_redistarget->redis_host = NULL;
@@ -660,3 +645,57 @@ int generate_event(char *buffer, size_t buffer_size, char *host_name, char *serv
 
     return(written);
 }
+
+
+/* adds a custom variable to a host */
+customvariablesmember *add_custom_variable_to_host(host *hst, char *varname, char *varvalue) {
+
+	return add_custom_variable_to_object(&hst->custom_variables, varname, varvalue);
+}
+
+/* adds a custom variable to an object */
+customvariablesmember *add_custom_variable_to_object(customvariablesmember **object_ptr, char *varname, char *varvalue) {
+	customvariablesmember *new_customvariablesmember = NULL;
+
+	/* make sure we have the data we need */
+	if (object_ptr == NULL) {
+		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Custom variable object is NULL\n");
+		return NULL;
+	}
+
+	if (varname == NULL || !strcmp(varname, "")) {
+		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Custom variable name is NULL\n");
+		return NULL;
+	}
+
+	/* allocate memory for a new member */
+	if ((new_customvariablesmember = malloc(sizeof(customvariablesmember))) == NULL) {
+		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable\n");
+		return NULL;
+	}
+	if ((new_customvariablesmember->variable_name = (char *)strdup(varname)) == NULL) {
+		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable name\n");
+		my_free(new_customvariablesmember);
+		return NULL;
+	}
+	if (varvalue) {
+		if ((new_customvariablesmember->variable_value = (char *)strdup(varvalue)) == NULL) {
+			logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for custom variable value\n");
+			my_free(new_customvariablesmember->variable_name);
+			my_free(new_customvariablesmember);
+			return NULL;
+		}
+	} else
+		new_customvariablesmember->variable_value = NULL;
+
+	/* set initial values */
+	new_customvariablesmember->has_been_modified = FALSE;
+
+	/* add the new member to the head of the member list */
+	new_customvariablesmember->next = *object_ptr;
+	*object_ptr = new_customvariablesmember;
+
+	return new_customvariablesmember;
+}
+
+
