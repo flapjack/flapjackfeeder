@@ -300,15 +300,20 @@ int npcdmod_handle_data(int event_type, void *data) {
                         if (reply != NULL) {
                             freeReplyObject(reply);
                         } else {
-                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: unable to write to redis, connection lost (redis host '%s', redis port '%s').", 
-                                currentredistarget->redis_host, currentredistarget->redis_port);
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s) fail, lost check result (host %s - %s).", 
+                                currentredistarget->redis_host, currentredistarget->redis_port,
+                                hostchkdata->host_name, hoststate[hostchkdata->state]);
                             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                             currentredistarget->redis_connection_established = 0;
                             redisFree(currentredistarget->rediscontext);
                         }
                     } else {
-                        write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) fail, lost check result (host %s - %s).", 
+                            currentredistarget->redis_host, currentredistarget->redis_port,
+                            hostchkdata->host_name, hoststate[hostchkdata->state]);
+                        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                     }
                     currentredistarget = currentredistarget->next;
                 }
@@ -379,15 +384,20 @@ int npcdmod_handle_data(int event_type, void *data) {
                         if (reply != NULL) {
                             freeReplyObject(reply);
                         } else {
-                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: unable to write to redis, connection lost (redis host '%s', redis port '%s').", 
-                                currentredistarget->redis_host, currentredistarget->redis_port);
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s) fail, lost check result (%s : %s - %s).", 
+                                currentredistarget->redis_host, currentredistarget->redis_port,
+                                srvchkdata->host_name, srvchkdata->service_description, servicestate[srvchkdata->state]);
                             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                             currentredistarget->redis_connection_established = 0;
                             redisFree(currentredistarget->rediscontext);
                         }
                     } else {
-                        write_to_all_logs("flapjackfeeder: lost check result due to redis connection fail.", NSLOG_INFO_MESSAGE);
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) fail, lost check result (%s : %s - %s).", 
+                            currentredistarget->redis_host, currentredistarget->redis_port,
+                            srvchkdata->host_name, srvchkdata->service_description, servicestate[srvchkdata->state]);
+                        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                     }
                     currentredistarget = currentredistarget->next;
                 }
