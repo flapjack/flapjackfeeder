@@ -121,6 +121,7 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     
         /* open redis connection to push check results */
         currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+        redisSetTimeout(currentredistarget->rediscontext, timeout);
         currentredistarget->redis_connection_established = 0;
         if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
             if (currentredistarget->rediscontext) {
@@ -191,6 +192,7 @@ void npcdmod_file_roller() {
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
             currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+            redisSetTimeout(currentredistarget->rediscontext, timeout);
             if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
                 if (currentredistarget->rediscontext) {
                     snprintf(temp_buffer, sizeof(temp_buffer) - 1,
