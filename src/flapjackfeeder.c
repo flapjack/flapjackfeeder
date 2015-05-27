@@ -70,7 +70,7 @@ redistarget *redistargets = NULL;
 
 redisReply *reply;
 
-void npcdmod_file_roller();
+void redis_re_connect();
 int npcdmod_handle_data(int, void *);
 
 int npcdmod_process_config_var(char *arg);
@@ -112,44 +112,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
         return -1;
     }
 
-    redistarget *currentredistarget = redistargets;
-    while (currentredistarget != NULL) {
-        /* Log some health data */
-        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis host '%s', redis port '%s'.", currentredistarget->redis_host, currentredistarget->redis_port);
-        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-    
-        /* open redis connection to push check results */
-        currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
-        redisSetTimeout(currentredistarget->rediscontext, timeout);
-        currentredistarget->redis_connection_established = 0;
-        if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
-            if (currentredistarget->rediscontext) {
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                     currentredistarget->rediscontext->errstr);
-                redisFree(currentredistarget->rediscontext);
-            } else {
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
-            }
-            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-        } else {
-            currentredistarget->redis_connection_established = 1;
-            /* log a message to the Nagios log file that we're ready */
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                    "flapjackfeeder: Ready to run to have some fun!\n");
-            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-        }
-        currentredistarget = currentredistarget->next;
-    }
+    /* connect to redis initially */
+    redis_re_connect();
 
-    /* register for a 15 seconds file move event */
+    /* register for an event every 15 seconds to check (and reconnect) the redis connections */
     time(&current_time);
     schedule_new_event(EVENT_USER_FUNCTION,TRUE, current_time + atoi(redis_connect_retry_interval), TRUE,
-    atoi(redis_connect_retry_interval), NULL, TRUE, (void *) npcdmod_file_roller, "", 0);
+    atoi(redis_connect_retry_interval), NULL, TRUE, (void *) redis_re_connect, "", 0);
 
     /* register to be notified of certain events... */
     neb_register_callback(NEBCALLBACK_HOST_CHECK_DATA,
@@ -177,38 +146,36 @@ int nebmodule_deinit(int flags, int reason) {
 }
 
 /* gets called every X seconds by an event in the scheduling queue */
-void npcdmod_file_roller() {
+void redis_re_connect() {
     char temp_buffer[1024];
-    int result = 0;
-    time_t current_time;
-    time(&current_time);
 
     redistarget *currentredistarget = redistargets;
     while (currentredistarget != NULL) {
         /* open redis connection to push check results if needed */
         if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err || currentredistarget->redis_connection_established == 0) {
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection has to be (re)established (redis host '%s', redis port '%s').", 
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) has to be (re)established.", 
                 currentredistarget->redis_host, currentredistarget->redis_port);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
             currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
+            currentredistarget->redis_connection_established = 0;
             redisSetTimeout(currentredistarget->rediscontext, timeout);
             if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
                 if (currentredistarget->rediscontext) {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Connection error: '%s'. But I'll retry to connect regulary.\n",
-                         currentredistarget->rediscontext->errstr);
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) error: '%s', I'll retry to connect regulary.", 
+                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->rediscontext->errstr);
                     redisFree(currentredistarget->rediscontext);
                 } else {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1,
-                        "flapjackfeeder: Connection error: can't allocate redis context. I'll retry, but this can lead to permanent failure.\n");
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) error, can't get redis context. I'll retry, but this can lead to permanent failure.", 
+                        currentredistarget->redis_host, currentredistarget->redis_port);
                 }
-                temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
-                write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
             } else {
                 currentredistarget->redis_connection_established = 1;
-                write_to_all_logs("flapjackfeeder: redis connection established.", NSLOG_INFO_MESSAGE);
+                snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) established.", 
+                    currentredistarget->redis_host, currentredistarget->redis_port);
             }
+            temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+            write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         }
         /*
         else {
