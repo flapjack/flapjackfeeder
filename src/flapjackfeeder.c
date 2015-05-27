@@ -534,6 +534,11 @@ int npcdmod_process_config_var(char *arg) {
     else if (!strcmp(var, "redis_connect_retry_interval"))
         redis_connect_retry_interval = strdup(val);
 
+    else if (!strcmp(var, "timeout")) {
+        timeout.tv_sec = atoi(val);
+        timeout.tv_usec = 0;
+    }
+
     else {
         snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: I don't know what to do with '%s' as argument.", var);
         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
