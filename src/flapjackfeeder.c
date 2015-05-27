@@ -179,8 +179,8 @@ void redis_re_connect() {
         }
         /*
         else {
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection seems to be fine (redis host '%s', redis port '%s' redis-> '%d').", 
-                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->rediscontext->err);
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) seems to be fine.", 
+                currentredistarget->redis_host, currentredistarget->redis_port);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         }
@@ -486,7 +486,6 @@ int npcdmod_process_config_var(char *arg) {
         if (redistargets == NULL || redistargets->redis_host != NULL) {
             /* allocate memory for a new redis target */
             if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
-                //logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Could not allocate memory for redis target\n");
                 write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
             }
             new_redistarget->redis_host = NULL;
@@ -533,12 +532,19 @@ int npcdmod_process_config_var(char *arg) {
         }
     }
 
-    else if (!strcmp(var, "redis_connect_retry_interval"))
+    else if (!strcmp(var, "redis_connect_retry_interval")) {
         redis_connect_retry_interval = strdup(val);
+        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: configure %ss as retry interval for redis reconnects.", redis_connect_retry_interval);
+        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+    }
 
     else if (!strcmp(var, "timeout")) {
         timeout.tv_sec = atoi(val);
         timeout.tv_usec = 0;
+        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: configure %ss as timeout for redis connects/writes.", val);
+        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
     }
 
     else {
