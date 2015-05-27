@@ -491,6 +491,7 @@ int npcdmod_process_config_var(char *arg) {
             }
             new_redistarget->redis_host = NULL;
             new_redistarget->redis_port = NULL;
+            new_redistarget->rediscontext = NULL;
             new_redistarget->redis_connection_established = 0;
         }
         if (redistargets != NULL && redistargets->redis_host == NULL) {
@@ -516,6 +517,7 @@ int npcdmod_process_config_var(char *arg) {
             }
             new_redistarget->redis_host = NULL;
             new_redistarget->redis_port = NULL;
+            new_redistarget->rediscontext = NULL;
             new_redistarget->redis_connection_established = 0;
         }
         if (redistargets != NULL && redistargets->redis_port == NULL) {
