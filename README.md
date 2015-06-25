@@ -48,3 +48,12 @@ You can feed multiple target databases by specifying them on the module load lin
 ```
 broker_module=/tmp/flapjackfeeder.o redis_host=localhost,redis_port=6379,redis_host=127.0.0.1,redis_port=6380
 ```
+
+## options
+
+Besides from *redis_host* and *redis_port* whose can be given multiple times to feed more than one redis database, there are more options that you can set.
+
+- *timeout* in seconds (defaults to 1,5 seconds, but you can only specify an integer here)
+  Warning: this will block nagios for the time it is waiting on redis!
+- *redis_connect_retry_interval* in seconds (defaults to 15 seconds)
+
