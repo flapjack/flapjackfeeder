@@ -41,7 +41,7 @@ Those are the two versions of the module build for Nagios3 and Nagios4/Naemon4.
 Just configure Nagios/Icinga to load the neb module in *nagios.cfg* by adding the following line.
 Alter the redis host and port according to your needs.
 ``` cfg
-broker_module=/tmp/flapjackfeeder.o redis_host=localhost,redis_port=6379
+broker_module=/tmp/flapjackfeeder.o redis_host=localhost,redis_port=6379,timeout=5
 ```
 
 You can feed multiple target databases by specifying them on the module load line.
@@ -51,9 +51,9 @@ broker_module=/tmp/flapjackfeeder.o redis_host=localhost,redis_port=6379,redis_h
 
 ## options
 
-Besides from *redis_host* and *redis_port* whose can be given multiple times to feed more than one redis database, there are more options that you can set.
+Besides from **redis_host** and **redis_port** whose can be given multiple times to feed more than one redis database, there are more options that you can set.
 
-- *timeout* in seconds (defaults to 1,5 seconds, but you can only specify an integer here)
-  Warning: this will block nagios for the time it is waiting on redis!
-- *redis_connect_retry_interval* in seconds (defaults to 15 seconds)
+- **timeout** in seconds (defaults to 1,5 seconds, but you can only specify an integer here)
 
+  *Warning: this will block nagios for the time it is waiting on redis not only once but every $redis_connect_retry_interval seconds!*
+- **redis_connect_retry_interval** in seconds (defaults to 15 seconds)
