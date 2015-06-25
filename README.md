@@ -31,8 +31,8 @@ vagrant@flapjack:/vagrant/flapjackfeeder$ make
 If you build following the steps in this README, you get something like this:
 ```
 vagrant@flapjack:/vagrant/flapjackfeeder$ ls -l *.o
--rwxr-xr-x 1 vagrant vagrant 56240 Jun 24 18:00 flapjackfeeder3-0.0.5.o
--rwxr-xr-x 1 vagrant vagrant 56240 Jun 24 18:01 flapjackfeeder4-0.0.5.o
+-rwxr-xr-x 1 vagrant vagrant 56240 Jun 24 18:00 flapjackfeeder3-v0.0.5.o
+-rwxr-xr-x 1 vagrant vagrant 56240 Jun 24 18:01 flapjackfeeder4-v0.0.5.o
 ```
 Those are the two versions of the module build for Nagios3 and Nagios4/Naemon4.
 
