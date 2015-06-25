@@ -49,6 +49,10 @@
 /* include redis stuff */
 #include "../hiredis/hiredis.h"
 
+#ifndef VERSION
+#define VERSION "unknown"
+#endif
+
 /* specify event broker API version (required) */
 NEB_API_VERSION(CURRENT_NEB_API_VERSION);
 
@@ -99,12 +103,13 @@ int nebmodule_init(int flags, char *args, nebmodule *handle) {
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_TITLE, "flapjackfeeder");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_AUTHOR, "Birger Schmidt");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_COPYRIGHT, "Copyright (c) 2013-2015 Birger Schmidt");
-    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, "0.0.5");
+    neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_VERSION, VERSION);
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_LICENSE, "GPL v2");
     neb_set_module_info(npcdmod_module_handle, NEBMODULE_MODINFO_DESC, "A simple performance data / check result extractor / redis writer.");
 
     /* log module info to the Nagios log file */
     write_to_all_logs("flapjackfeeder: Copyright (c) 2013-2015 Birger Schmidt, derived from npcdmod", NSLOG_INFO_MESSAGE);
+    write_to_all_logs("flapjackfeeder: This is version '" VERSION "' running.", NSLOG_INFO_MESSAGE);
 
     /* process arguments */
     if (npcdmod_process_module_args(args) == ERROR) {
