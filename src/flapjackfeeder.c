@@ -47,7 +47,7 @@
 #include "../include/npcdmod.h"
 
 /* include redis stuff */
-#include "../../hiredis/hiredis.h"
+#include "../hiredis/hiredis.h"
 
 /* specify event broker API version (required) */
 NEB_API_VERSION(CURRENT_NEB_API_VERSION);
