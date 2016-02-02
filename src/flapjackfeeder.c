@@ -60,16 +60,19 @@ void *npcdmod_module_handle = NULL;
 char *redis_connect_retry_interval = "15";
 struct timeval timeout = { 1, 500000 }; // 1.5 seconds
 
+int flapjack_version = 1;
+
 /* redis target structure */
 typedef struct redistarget_struct {
     char         *redis_host;
     char         *redis_port;
+    char         *redis_queue;
     int          redis_connection_established;
     redisContext *rediscontext;
     struct redistarget_struct *next;
 } redistarget;
 
-/* here will be all our redis targets */ 
+/* here will be all our redis targets */
 redistarget *redistargets = NULL;
 
 redisReply *reply;
@@ -88,7 +91,7 @@ char *expand_escapes(const char* src);
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
                    char *state, char *output, char *long_output, char *tags,
-                   long initial_failure_delay, long repeat_failure_delay, 
+                   long initial_failure_delay, long repeat_failure_delay,
                    int event_time);
 
 /* this function gets called when the module is loaded by the event broker */
@@ -158,8 +161,8 @@ void redis_re_connect() {
     while (currentredistarget != NULL) {
         /* open redis connection to push check results if needed */
         if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err || currentredistarget->redis_connection_established == 0) {
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) has to be (re)established.", 
-                currentredistarget->redis_host, currentredistarget->redis_port);
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) has to be (re)established.",
+                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
             currentredistarget->rediscontext = redisConnectWithTimeout(currentredistarget->redis_host, atoi(currentredistarget->redis_port), timeout);
@@ -167,25 +170,25 @@ void redis_re_connect() {
             redisSetTimeout(currentredistarget->rediscontext, timeout);
             if (currentredistarget->rediscontext == NULL || currentredistarget->rediscontext->err) {
                 if (currentredistarget->rediscontext) {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) error: '%s', I'll retry to connect regulary.", 
-                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->rediscontext->errstr);
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) error: '%s', I'll retry to connect regulary.",
+                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue, currentredistarget->rediscontext->errstr);
                     redisFree(currentredistarget->rediscontext);
                 } else {
-                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) error, can't get redis context. I'll retry, but this can lead to permanent failure.", 
-                        currentredistarget->redis_host, currentredistarget->redis_port);
+                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) error, can't get redis context. I'll retry, but this can lead to permanent failure.",
+                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
                 }
             } else {
                 currentredistarget->redis_connection_established = 1;
-                snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) established.", 
-                    currentredistarget->redis_host, currentredistarget->redis_port);
+                snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) established.",
+                    currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
             }
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         }
         /*
         else {
-            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) seems to be fine.", 
-                currentredistarget->redis_host, currentredistarget->redis_port);
+            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) seems to be fine.",
+                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
         }
@@ -270,12 +273,27 @@ int npcdmod_handle_data(int event_type, void *data) {
                         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                     } else if (currentredistarget->redis_connection_established) {
-                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH events %s", push_buffer);
+                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH %s %s", currentredistarget->redis_queue, push_buffer);
+
                         if (reply != NULL) {
                             freeReplyObject(reply);
+
+                            if ( flapjack_version > 1) {
+                                reply = redisCommand(currentredistarget->rediscontext,"LPUSH %s_actions +", currentredistarget->redis_queue);
+                                if (reply != NULL) {
+                                    freeReplyObject(reply);
+                                } else {
+                                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s,%s) to events_actions failed, processing delayed",
+                                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
+                                    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                                    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                                    currentredistarget->redis_connection_established = 0;
+                                    redisFree(currentredistarget->rediscontext);
+                                }
+                            }
                         } else {
-                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s) fail, lost check result (host %s - %s).", 
-                                currentredistarget->redis_host, currentredistarget->redis_port,
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s,%s) fail, lost check result (host %s - %s).",
+                                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue,
                                 hostchkdata->host_name, hoststate[hostchkdata->state]);
                             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
@@ -283,8 +301,8 @@ int npcdmod_handle_data(int event_type, void *data) {
                             redisFree(currentredistarget->rediscontext);
                         }
                     } else {
-                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) fail, lost check result (host %s - %s).", 
-                            currentredistarget->redis_host, currentredistarget->redis_port,
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) fail, lost check result (host %s - %s).",
+                            currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue,
                             hostchkdata->host_name, hoststate[hostchkdata->state]);
                         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
@@ -354,12 +372,26 @@ int npcdmod_handle_data(int event_type, void *data) {
                         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
                     } else if (currentredistarget->redis_connection_established) {
-                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH events %s", push_buffer);
+                        reply = redisCommand(currentredistarget->rediscontext,"LPUSH %s %s", currentredistarget->redis_queue, push_buffer);
                         if (reply != NULL) {
                             freeReplyObject(reply);
+
+                            if ( flapjack_version > 1) {
+                                reply = redisCommand(currentredistarget->rediscontext,"LPUSH %s_actions +", currentredistarget->redis_queue);
+                                if (reply != NULL) {
+                                    freeReplyObject(reply);
+                                } else {
+                                    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s,%s) to events_actions failed, processing delayed",
+                                        currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue);
+                                    temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+                                    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+                                    currentredistarget->redis_connection_established = 0;
+                                    redisFree(currentredistarget->rediscontext);
+                                }
+                            }
                         } else {
-                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s) fail, lost check result (%s : %s - %s).", 
-                                currentredistarget->redis_host, currentredistarget->redis_port,
+                            snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis write (%s:%s,%s) fail, lost check result (%s : %s - %s).",
+                                currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue,
                                 srvchkdata->host_name, srvchkdata->service_description, servicestate[srvchkdata->state]);
                             temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                             write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
@@ -367,8 +399,8 @@ int npcdmod_handle_data(int event_type, void *data) {
                             redisFree(currentredistarget->rediscontext);
                         }
                     } else {
-                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s) fail, lost check result (%s : %s - %s).", 
-                            currentredistarget->redis_host, currentredistarget->redis_port,
+                        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: redis connection (%s:%s,%s) fail, lost check result (%s : %s - %s).",
+                            currentredistarget->redis_host, currentredistarget->redis_port, currentredistarget->redis_queue,
                             srvchkdata->host_name, srvchkdata->service_description, servicestate[srvchkdata->state]);
                         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
                         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
@@ -406,6 +438,7 @@ int npcdmod_process_module_args(char *args) {
         }
         redistargets->redis_host = "127.0.0.1";
         redistargets->redis_port = "6379";
+        redistargets->redis_queue = "events";
         redistargets->redis_connection_established = 0;
     	redistargets->next = NULL;
         return OK;
@@ -453,7 +486,7 @@ int npcdmod_process_module_args(char *args) {
     }
 
     if (redistargets == NULL || redistargets->redis_host == NULL || redistargets->redis_port == NULL) {
-        write_to_all_logs("flapjackfeeder: Error: You have to configure at least one redis target tuple (i.e. redis_host=localhost,redis_port=6379)", NSLOG_CONFIG_ERROR);
+        write_to_all_logs("flapjackfeeder: Error: You have to configure at least one redis target tuple (i.e. redis_host=localhost,redis_port=6379,redis_queue=events)", NSLOG_CONFIG_ERROR);
         return ERROR;
     }
 
@@ -495,6 +528,7 @@ int npcdmod_process_config_var(char *arg) {
             }
             new_redistarget->redis_host = NULL;
             new_redistarget->redis_port = NULL;
+            new_redistarget->redis_queue = NULL;
             new_redistarget->rediscontext = NULL;
             new_redistarget->redis_connection_established = 0;
         }
@@ -521,6 +555,7 @@ int npcdmod_process_config_var(char *arg) {
             }
             new_redistarget->redis_host = NULL;
             new_redistarget->redis_port = NULL;
+            new_redistarget->redis_queue = NULL;
             new_redistarget->rediscontext = NULL;
             new_redistarget->redis_connection_established = 0;
         }
@@ -537,6 +572,32 @@ int npcdmod_process_config_var(char *arg) {
         }
     }
 
+    else if (!strcmp(var, "redis_queue")) {
+        // fill redistarget structure
+        if (redistargets == NULL || redistargets->redis_queue != NULL) {
+            /* allocate memory for a new redis target */
+            if ((new_redistarget = malloc(sizeof(redistarget))) == NULL) {
+                write_to_all_logs("Error: Could not allocate memory for redis target\n", NSLOG_INFO_MESSAGE);
+            }
+            new_redistarget->redis_host = NULL;
+            new_redistarget->redis_port = NULL;
+            new_redistarget->redis_queue = NULL;
+            new_redistarget->rediscontext = NULL;
+            new_redistarget->redis_connection_established = 0;
+        }
+        if (redistargets != NULL && redistargets->redis_queue == NULL) {
+            redistargets->redis_queue = strdup(val);
+        }
+        else {
+            new_redistarget->redis_queue = strdup(val);
+        }
+        if (new_redistarget != NULL) {
+            /* add the new redistarget to the head of the redistarget list */
+            new_redistarget->next = redistargets;
+            redistargets = new_redistarget;
+        }
+    }
+
     else if (!strcmp(var, "redis_connect_retry_interval")) {
         redis_connect_retry_interval = strdup(val);
         snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: configure %ss as retry interval for redis reconnects.", redis_connect_retry_interval);
@@ -548,6 +609,13 @@ int npcdmod_process_config_var(char *arg) {
         timeout.tv_sec = atoi(val);
         timeout.tv_usec = 0;
         snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: configure %ss as timeout for redis connects/writes.", val);
+        temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
+        write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+    }
+
+    else if (!strcmp(var, "flapjack_version")) {
+        flapjack_version = atoi(val);
+        snprintf(temp_buffer, sizeof(temp_buffer) - 1, "flapjackfeeder: configure %s as flapjack_version.", val);
         temp_buffer[sizeof(temp_buffer) - 1] = '\x0';
         write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
     }
@@ -636,7 +704,7 @@ char *expand_escapes(const char* src)
 
 int generate_event(char *buffer, size_t buffer_size, char *host_name, char *service_name,
                    char *state, char *output, char *long_output, char *tags,
-                   long initial_failure_delay, long repeat_failure_delay, 
+                   long initial_failure_delay, long repeat_failure_delay,
                    int event_time) {
 
     char *escaped_host_name    = expand_escapes(host_name);
