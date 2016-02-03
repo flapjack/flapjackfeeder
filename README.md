@@ -1,13 +1,15 @@
 flapjackfeeder
 ==============
 
-Nagios/Icinga event broker module (neb) to feed check execution results to the events queue in Flapjack, via Redis.
+Nagios/Icinga event broker module (NEB) to feed check execution results to the events queue in Flapjack, via Redis.
 
 Known to work on Linux (eg Ubuntu Precise) with:
 - Nagios 3.2.3
 - Nagios 4
 - Naemon 4
 - Icinga 1.x
+
+Icinga 2.x drops compatibility with NEB modules, but if you're running a recent version (2.4+) with the API enabled, you can use the [flapjack-icinga2](https://github.com/sol1/flapjack-icinga2) API client as an event relay.
 
 ## versioning
 
