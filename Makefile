@@ -12,7 +12,7 @@ ifeq ($(MAKE),)
 endif
 OPTIMIZATION ?= -O3
 DEBUG ?= -g -ggdb
-REAL_CFLAGS = $(OPTIMIZATION) -fPIC $(CFLAGS) $(DEBUG) $(ARCH) -DHAVE_CONFIG_H -DNSCORE -DVERSION='"$(FLAPJACKFEEDER_VERSION)"' 
+REAL_CFLAGS = $(OPTIMIZATION) -fPIC -I/usr/include/naemon -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/usr/include/glib-2.0 $(CFLAGS) $(DEBUG) $(ARCH) -DHAVE_CONFIG_H -DNSCORE -DVERSION='"$(FLAPJACKFEEDER_VERSION)"' 
 
 # get version from ENV or git
 ifndef VERSION 
@@ -36,9 +36,11 @@ $(DEP):
 # modules:
 $(FF3): $(SRC) $(DEP)
 	$(CC) $(REAL_CFLAGS) -o $@ $< -shared $(DEP)
+	ln -sf $@ flapjackfeeder3-latest.o
 	strip $@
 $(FF4): $(SRC) $(DEP)
 	$(CC) $(REAL_CFLAGS) -DHAVE_NAEMON_H -o $@ $< -shared $(DEP)
+	ln -sf $@ flapjackfeeder4-latest.o
 	strip $@
 
 clean:
